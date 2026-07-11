@@ -19,6 +19,7 @@ data class SessionInfo(
     val preview: String? = null,
     val started_at: Double? = null,
     val source: String? = null,
+    val model: String? = null,
 )
 
 @Serializable
