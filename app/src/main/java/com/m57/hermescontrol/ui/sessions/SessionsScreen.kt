@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Terminal
@@ -76,6 +77,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.ChatScreen
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
+import com.m57.hermescontrol.data.model.SessionSearchResult
+import com.m57.hermescontrol.data.model.SessionInfo
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.common.EmptyState
@@ -154,6 +157,30 @@ private fun highlightText(
         }
     }
 
+/** Maps a backend FTS5 search hit into the card's display model. */
+private fun SessionSearchResult.toSessionInfo(): SessionInfo =
+    SessionInfo(
+        id = session_id,
+        title = null,
+        preview = snippet,
+        source = source,
+        started_at = session_started,
+    )
+
+/**
+ * Builds the list of sessions to display. In search mode the backend results are
+ * used; otherwise the locally-paginated list is filtered by title/status as before.
+ */
+private fun displayedSessions(state: SessionsUiState): List<SessionInfo> =
+    if (state.isSearchMode) {
+        state.searchResults.map { it.toSessionInfo() }
+    } else {
+        state.sessions.filter { session ->
+            session.title?.contains(state.searchQuery, ignoreCase = true) == true ||
+                session.status?.contains(state.searchQuery, ignoreCase = true) == true
+        }
+    }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SessionsScreen(
@@ -167,16 +194,16 @@ fun SessionsScreen(
     val primaryContainer = MaterialTheme.colorScheme.primaryContainer
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
 
-    var query by remember { mutableStateOf("") }
     var pruneDays by remember { mutableStateOf("7") }
 
-    val filteredSessions =
-        remember(query, state.sessions) {
-            state.sessions.filter { session ->
-                session.title?.contains(query, ignoreCase = true) == true ||
-                    session.status?.contains(query, ignoreCase = true) == true
-            }
-        }
+    val sessionsToDisplay = remember(
+        state.isSearchMode,
+        state.searchQuery,
+        state.sessions,
+        state.searchResults,
+    ) {
+        displayedSessions(state)
+    }
 
     val hasSelection = state.selectedIds.isNotEmpty()
 
@@ -311,7 +338,99 @@ fun SessionsScreen(
         onRefresh = { viewModel.loadSessions() },
         modifier = modifier,
     ) {
+        // ── Search + bulk toggle (always visible) ──────────────
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SearchBar(
+                query = state.searchQuery,
+                onQueryChange = { viewModel.setSearchQuery(it) },
+                placeholder = stringResource(R.string.sessions_search_placeholder),
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.width(spacing.sm))
+            IconButton(onClick = { viewModel.toggleSelecting() }) {
+                Icon(
+                    imageVector = if (state.isSelecting) Icons.Filled.Close else Icons.Filled.SelectAll,
+                    contentDescription =
+                        if (state.isSelecting) {
+                            stringResource(R.string.content_desc_exit_selection)
+                        } else {
+                            stringResource(R.string.content_desc_enter_selection)
+                        },
+                )
+            }
+        }
+
         when {
+            state.isSearchMode -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    when {
+                        state.isSearching && state.searchResults.isEmpty() -> {
+                            LoadingState()
+                        }
+                        state.searchError != null -> {
+                            ErrorState(
+                                message =
+                                    state.searchError
+                                        ?: stringResource(R.string.error_unknown),
+                                onRetry = { viewModel.setSearchQuery(state.searchQuery) },
+                            )
+                        }
+                        state.searchResults.isEmpty() -> {
+                            EmptyState(
+                                title = stringResource(R.string.sessions_search_empty_title),
+                                subtitle =
+                                    stringResource(
+                                        R.string.sessions_search_empty_desc,
+                                        state.searchQuery,
+                                    ),
+                                icon = Icons.Filled.Search,
+                            )
+                        }
+                        else -> {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = listContentPadding,
+                                verticalArrangement = listItemSpacing,
+                            ) {
+                                items(sessionsToDisplay, key = { it.id }) { session ->
+                                    SessionCard(
+                                        session = session,
+                                        query = state.searchQuery,
+                                        isSelecting = state.isSelecting,
+                                        isSelected = session.id in state.selectedIds,
+                                        isDeleting = session.id in state.deletingSessionIds,
+                                        highlightBackground = primaryContainer,
+                                        highlightForeground = onPrimaryContainer,
+                                        onCardClick = {
+                                            if (state.isSelecting) {
+                                                viewModel.toggleSessionSelection(session.id)
+                                            } else {
+                                                NavigationController.pendingSessionId = session.id
+                                                NavigationController.navigateTo(ChatScreen)
+                                            }
+                                        },
+                                        onCardLongClick = {
+                                            if (!state.isSelecting) {
+                                                viewModel.toggleSelecting()
+                                                viewModel.toggleSessionSelection(session.id)
+                                            }
+                                        },
+                                        onToggleSelection = { viewModel.toggleSessionSelection(session.id) },
+                                        onDelete = { viewModel.requestDeleteSession(session.id) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             state.isLoading && state.sessions.isEmpty() -> {
                 LoadingState()
             }
@@ -396,44 +515,16 @@ fun SessionsScreen(
                         )
                     }
 
-                    // ── Search + bulk toggle ────────────────────────────
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SearchBar(
-                            query = query,
-                            onQueryChange = { query = it },
-                            placeholder = stringResource(R.string.sessions_search_placeholder),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(modifier = Modifier.width(spacing.sm))
-                        IconButton(onClick = { viewModel.toggleSelecting() }) {
-                            Icon(
-                                imageVector = if (state.isSelecting) Icons.Filled.Close else Icons.Filled.SelectAll,
-                                contentDescription =
-                                    if (state.isSelecting) {
-                                        stringResource(R.string.content_desc_exit_selection)
-                                    } else {
-                                        stringResource(R.string.content_desc_enter_selection)
-                                    },
-                            )
-                        }
-                    }
-
                     // ── Session list ────────────────────────────────────
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = listContentPadding,
                         verticalArrangement = listItemSpacing,
                     ) {
-                        items(filteredSessions, key = { it.id }) { session ->
+                        items(sessionsToDisplay, key = { it.id }) { session ->
                             SessionCard(
                                 session = session,
-                                query = query,
+                                query = state.searchQuery,
                                 isSelecting = state.isSelecting,
                                 isSelected = session.id in state.selectedIds,
                                 isDeleting = session.id in state.deletingSessionIds,
@@ -523,7 +614,7 @@ fun SessionsScreen(
                     // Select all / deselect
                     OutlinedButton(
                         onClick = {
-                            if (state.selectedIds.size == filteredSessions.size) {
+                            if (state.selectedIds.size == state.sessions.size) {
                                 viewModel.clearSelection()
                             } else {
                                 viewModel.selectAll()
@@ -532,7 +623,7 @@ fun SessionsScreen(
                     ) {
                         Icon(
                             imageVector =
-                                if (state.selectedIds.size == filteredSessions.size) {
+                                if (state.selectedIds.size == state.sessions.size) {
                                     Icons.Filled.Close
                                 } else {
                                     Icons.Filled.SelectAll
@@ -542,7 +633,7 @@ fun SessionsScreen(
                         )
                         Spacer(modifier = Modifier.width(spacing.xs))
                         Text(
-                            if (state.selectedIds.size == filteredSessions.size) {
+                            if (state.selectedIds.size == state.sessions.size) {
                                 stringResource(R.string.sessions_action_deselect_all)
                             } else {
                                 stringResource(R.string.sessions_action_select_all)
