@@ -402,7 +402,8 @@ fun ChatScreen(
                     onLastAnimatedMessageIdChange = { lastAnimatedMessageId = it },
                     hasReachedOldest = state.hasReachedOldest,
                     isLoadingOlder = state.isLoadingOlder,
-                    olderMessagesOffset = state.olderMessagesOffset,
+                    currentOffset = state.currentOffset,
+                    lastPrependCount = state.lastPrependCount,
                     onLoadOlderMessages = { viewModel.loadOlderMessages() },
                     viewModel = viewModel,
                 )
@@ -1675,22 +1676,33 @@ private fun ChatMessageList(
     onLastAnimatedMessageIdChange: (String?) -> Unit,
     hasReachedOldest: Boolean,
     isLoadingOlder: Boolean,
-    olderMessagesOffset: Int?,
+    currentOffset: Int,
+    lastPrependCount: Int,
     onLoadOlderMessages: () -> Unit,
     viewModel: ChatViewModel,
 ) {
     // Load older messages when the user scrolls the list back to the top
     // (issue #551). The header item at index 0 becomes visible at the top.
-    LaunchedEffect(olderMessagesOffset, hasReachedOldest, isLoadingOlder) {
-        if (olderMessagesOffset != null && !hasReachedOldest && !isLoadingOlder) {
-            snapshotFlow { listState.firstVisibleItemIndex }
-                .collect { firstIndex ->
-                    if (firstIndex <= 0 && olderMessagesOffset != null &&
-                        !hasReachedOldest && !isLoadingOlder
-                    ) {
-                        onLoadOlderMessages()
-                    }
+    val canLoadMore by remember { derivedStateOf { currentOffset > 0 && !hasReachedOldest } }
+    LaunchedEffect(canLoadMore) {
+        if (!canLoadMore) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { firstIndex ->
+                // Trigger once when the top becomes visible. Because canLoadMore
+                // flips to false while loading (currentOffset unchanged but
+                // isLoadingOlder true guards re-entry) and resets only after the
+                // next page loads, this won't spin into an infinite loop.
+                if (firstIndex <= 0 && canLoadMore && !isLoadingOlder) {
+                    onLoadOlderMessages()
                 }
+            }
+    }
+
+    // Preserve scroll position after older messages are prepended (issue #551).
+    // Without this the viewport snaps to the top of the newly loaded page.
+    LaunchedEffect(lastPrependCount) {
+        if (lastPrependCount > 0) {
+            listState.scrollToItem(lastPrependCount)
         }
     }
 
@@ -1742,10 +1754,9 @@ private fun ChatMessageList(
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
             // ── Load-older header (issue #551) ──
-            // Spinner while fetching an older page; "beginning of conversation"
-            // once the oldest page is reached. Hidden entirely when there is
-            // nothing older to load yet (first page still loading / small chat).
-            if (!hasReachedOldest && (isLoadingOlder || olderMessagesOffset != null)) {
+            // Spinner while fetching an older page; hidden once the oldest
+            // page is reached (currentOffset == 0).
+            if (currentOffset > 0 && !hasReachedOldest) {
                 item(key = "load_older_header") {
                     Box(
                         modifier =
