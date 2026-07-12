@@ -131,6 +131,11 @@ interface HermesApiService {
         // Preserve slashes in session IDs — backend generates IDs containing '/' characters (issue #468).
         // Contract: The server-generated sessionId must only contain URL-safe characters (no ?, #, or spaces).
         @Path("id", encoded = true) sessionId: String,
+        // Pagination (issue #551): backend returns newest-first when limit is set.
+        // Defaults match the un-paginated full-history behavior; callers pass an
+        // explicit page to fetch older messages. Backend clamps limit to 500.
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0,
     ): Response<SessionMessagesResponse>
 
     @GET("api/sessions/stats")

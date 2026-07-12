@@ -95,6 +95,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -399,6 +400,10 @@ fun ChatScreen(
                     listState = listState,
                     lastAnimatedMessageId = lastAnimatedMessageId,
                     onLastAnimatedMessageIdChange = { lastAnimatedMessageId = it },
+                    hasReachedOldest = state.hasReachedOldest,
+                    isLoadingOlder = state.isLoadingOlder,
+                    olderMessagesOffset = state.olderMessagesOffset,
+                    onLoadOlderMessages = { viewModel.loadOlderMessages() },
                     viewModel = viewModel,
                 )
 
@@ -1668,8 +1673,27 @@ private fun ChatMessageList(
     listState: LazyListState,
     lastAnimatedMessageId: String?,
     onLastAnimatedMessageIdChange: (String?) -> Unit,
+    hasReachedOldest: Boolean,
+    isLoadingOlder: Boolean,
+    olderMessagesOffset: Int?,
+    onLoadOlderMessages: () -> Unit,
     viewModel: ChatViewModel,
 ) {
+    // Load older messages when the user scrolls the list back to the top
+    // (issue #551). The header item at index 0 becomes visible at the top.
+    LaunchedEffect(olderMessagesOffset, hasReachedOldest, isLoadingOlder) {
+        if (olderMessagesOffset != null && !hasReachedOldest && !isLoadingOlder) {
+            snapshotFlow { listState.firstVisibleItemIndex }
+                .collect { firstIndex ->
+                    if (firstIndex <= 0 && olderMessagesOffset != null &&
+                        !hasReachedOldest && !isLoadingOlder
+                    ) {
+                        onLoadOlderMessages()
+                    }
+                }
+        }
+    }
+
     // Lay children out vertically so the search bar occupies real layout space
     // ABOVE the message list. Without this container the call site is a Box,
     // which overlays the LazyColumn on top of the search AnimatedVisibility and
@@ -1717,6 +1741,36 @@ private fun ChatMessageList(
             modifier = Modifier.fillMaxWidth().weight(1f),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
+            // ── Load-older header (issue #551) ──
+            // Spinner while fetching an older page; "beginning of conversation"
+            // once the oldest page is reached. Hidden entirely when there is
+            // nothing older to load yet (first page still loading / small chat).
+            if (!hasReachedOldest && (isLoadingOlder || olderMessagesOffset != null)) {
+                item(key = "load_older_header") {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isLoadingOlder) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        } else {
+                            Text(
+                                text = "↑ Load earlier messages",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+
             itemsIndexed(
                 items = messages,
                 key = { _, message -> message.id },
