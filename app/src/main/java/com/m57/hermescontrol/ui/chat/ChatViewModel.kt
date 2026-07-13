@@ -52,6 +52,8 @@ internal fun sessionModelCommand(
     model: String,
 ): String = "/model $model --provider $provider --session"
 
+internal fun queueCommand(prompt: String): String = "/queue $prompt"
+
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val currentSessionId: String? = null,
@@ -94,6 +96,7 @@ data class ChatUiState(
 ) {
     /** Convenience — derived from [connectionStatus]. */
     val isConnected: Boolean get() = connectionStatus == ConnectionStatus.CONNECTED
+    val hasPendingApproval: Boolean get() = messages.any { it.approvalInfo != null }
 }
 
 data class SessionUi(
@@ -691,6 +694,20 @@ class ChatViewModel(
                 onSent = { id -> trackRequest(id, WsMethods.PROMPT_SUBMIT) },
             )
         }
+    }
+
+    /** Queue a text message while Hermes is blocked on an approval request. */
+    fun queueMessage(text: String) {
+        val trimmed = text.trim()
+        val storageSessionId = _uiState.value.currentSessionId ?: return
+        if (trimmed.isBlank()) return
+
+        val userMessage = ChatMessage(role = MessageRole.USER, content = text)
+        _uiState.update { it.copy(messages = it.messages + userMessage) }
+        viewModelScope.launch(Dispatchers.IO) {
+            repo.persistMessage(userMessage, storageSessionId)
+        }
+        dispatchViaRpc(queueCommand(trimmed))
     }
 
     /**

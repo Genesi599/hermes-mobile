@@ -443,7 +443,11 @@ fun ChatScreen(
                 inputText = inputText,
                 onInputChange = { inputText = it },
                 onSend = {
-                    viewModel.sendMessage(inputText)
+                    if (state.hasPendingApproval) {
+                        viewModel.queueMessage(inputText)
+                    } else {
+                        viewModel.sendMessage(inputText)
+                    }
                     inputText = ""
                     scrollScope.launch {
                         val totalItems =
@@ -489,6 +493,7 @@ fun ChatScreen(
                 },
                 isListening = isListening,
                 isAgentTyping = state.isAgentTyping,
+                hasPendingApproval = state.hasPendingApproval,
                 isConnected = state.isConnected,
                 commandCatalog = state.commandCatalog,
                 pendingAttachments = state.pendingAttachments,
@@ -708,6 +713,7 @@ private fun ChatInputBar(
     onMicTap: () -> Unit,
     isListening: Boolean,
     isAgentTyping: Boolean,
+    hasPendingApproval: Boolean,
     isConnected: Boolean,
     commandCatalog: CommandCatalog,
     pendingAttachments: List<Attachment> = emptyList(),
@@ -721,8 +727,12 @@ private fun ChatInputBar(
     // Allow sending slash commands even while agent is typing
     val isSlashCommand = inputText.startsWith("/")
     val canSend =
-        (inputText.isNotBlank() || pendingAttachments.isNotEmpty()) &&
-            isConnected && (!isAgentTyping || isSlashCommand)
+        if (hasPendingApproval) {
+            inputText.isNotBlank() && isConnected
+        } else {
+            (inputText.isNotBlank() || pendingAttachments.isNotEmpty()) &&
+                isConnected && (!isAgentTyping || isSlashCommand)
+        }
 
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
@@ -924,6 +934,8 @@ private fun ChatInputBar(
                             Text(
                                 if (!isConnected) {
                                     stringResource(R.string.chat_input_placeholder_not_connected)
+                                } else if (hasPendingApproval) {
+                                    stringResource(R.string.chat_input_placeholder_queue_after_approval)
                                 } else if (isAgentTyping) {
                                     stringResource(R.string.chat_input_placeholder_waiting)
                                 } else {
