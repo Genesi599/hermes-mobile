@@ -119,6 +119,7 @@ import coil.compose.AsyncImage
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.data.model.ModelProvider
 import com.m57.hermescontrol.data.ws.CommandCatalog
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.notification.NotificationHelper
@@ -512,6 +513,8 @@ fun ChatScreen(
                 onImageTap = { filePickerLauncher.launch("image/*") },
                 onFileTap = { filePickerLauncher.launch("*/*") },
                 onRemoveAttachment = viewModel::removeAttachment,
+                onModelTap = viewModel::openSessionModelPicker,
+                sessionModelEnabled = state.currentSessionId != null && !state.isAgentTyping,
             )
         }
 
@@ -523,7 +526,64 @@ fun ChatScreen(
                 },
             )
         }
+
+        if (state.showSessionModelPicker) {
+            SessionModelPickerDialog(
+                providers = state.sessionModelProviders,
+                isLoading = state.isLoadingSessionModels,
+                errorMessage = state.sessionModelError,
+                onSelect = viewModel::selectSessionModel,
+                onDismiss = viewModel::closeSessionModelPicker,
+            )
+        }
     }
+}
+
+@Composable
+private fun SessionModelPickerDialog(
+    providers: List<ModelProvider>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onSelect: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val models =
+        remember(providers) {
+            providers.flatMap { provider ->
+                provider.models.orEmpty().map { model -> provider to model }
+            }
+        }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Switch model for this chat") },
+        text = {
+            when {
+                isLoading -> CircularProgressIndicator()
+                errorMessage != null -> Text(errorMessage, color = MaterialTheme.colorScheme.error)
+                models.isEmpty() -> Text("No authenticated models are available.")
+                else -> {
+                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                        items(models, key = { (provider, model) -> "${provider.slug}::$model" }) { (provider, model) ->
+                            TextButton(
+                                onClick = { onSelect(provider.slug, model) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(model, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        provider.name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
 
 @Composable
@@ -655,6 +715,8 @@ private fun ChatInputBar(
     onImageTap: () -> Unit = {},
     onFileTap: () -> Unit = {},
     onRemoveAttachment: (Int) -> Unit = {},
+    onModelTap: () -> Unit,
+    sessionModelEnabled: Boolean,
 ) {
     // Allow sending slash commands even while agent is typing
     val isSlashCommand = inputText.startsWith("/")
@@ -774,6 +836,21 @@ private fun ChatInputBar(
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    IconButton(
+                        onClick = onModelTap,
+                        enabled = sessionModelEnabled,
+                        modifier =
+                            Modifier
+                                .size(36.dp)
+                                .testTag("session_model_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Psychology,
+                            contentDescription = "Switch model for this chat",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
                     Box {
                         // Single attach button that opens a dropdown menu
                         IconButton(

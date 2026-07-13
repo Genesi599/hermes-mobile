@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.HermesDatabase
 import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.data.model.ModelProvider
 import com.m57.hermescontrol.data.model.SessionMessage
 import com.m57.hermescontrol.data.model.flattenSessionTree
 import com.m57.hermescontrol.data.remote.ApiClient
@@ -46,6 +47,11 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "ChatViewModel"
 private const val MESSAGE_PAGE_SIZE = 150
 
+internal fun sessionModelCommand(
+    provider: String,
+    model: String,
+): String = "/model $model --provider $provider --session"
+
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val currentSessionId: String? = null,
@@ -80,6 +86,11 @@ data class ChatUiState(
     val commandCatalog: CommandCatalog = CommandCatalog(),
     // Attachment state
     val pendingAttachments: List<Attachment> = emptyList(),
+    // Session-only model picker state
+    val showSessionModelPicker: Boolean = false,
+    val isLoadingSessionModels: Boolean = false,
+    val sessionModelProviders: List<ModelProvider> = emptyList(),
+    val sessionModelError: String? = null,
 ) {
     /** Convenience — derived from [connectionStatus]. */
     val isConnected: Boolean get() = connectionStatus == ConnectionStatus.CONNECTED
@@ -680,6 +691,59 @@ class ChatViewModel(
                 onSent = { id -> trackRequest(id, WsMethods.PROMPT_SUBMIT) },
             )
         }
+    }
+
+    /**
+     * Opens the model picker for the active TUI session. The selected model is
+     * dispatched with `--session`, so it never writes the computer-wide model configuration.
+     */
+    fun openSessionModelPicker() {
+        if (runtimeSessionId == null) {
+            _uiState.update { it.copy(errorMessage = "No active session. Start a chat first.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                showSessionModelPicker = true,
+                isLoadingSessionModels = it.sessionModelProviders.isEmpty(),
+                sessionModelError = null,
+            )
+        }
+        if (_uiState.value.sessionModelProviders.isNotEmpty()) return
+
+        viewModelScope.launch {
+            when (val result = withContext(Dispatchers.IO) { safeApiCall { ApiClient.hermesApi.getModelOptions() } }) {
+                is NetworkResult.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingSessionModels = false,
+                            sessionModelProviders = result.data.providers,
+                        )
+                    }
+                }
+
+                is NetworkResult.Failure -> {
+                    _uiState.update {
+                        it.copy(
+                            isLoadingSessionModels = false,
+                            sessionModelError = "Failed to load models: ${result.error.message}",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun closeSessionModelPicker() {
+        _uiState.update { it.copy(showSessionModelPicker = false, sessionModelError = null) }
+    }
+
+    fun selectSessionModel(
+        provider: String,
+        model: String,
+    ) {
+        _uiState.update { it.copy(showSessionModelPicker = false, sessionModelError = null) }
+        dispatchViaRpc(sessionModelCommand(provider, model))
     }
 
     /** Read and encode a `content://` or `file://` URI to Base64 via ContentResolver, avoiding large allocations. */
