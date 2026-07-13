@@ -9,9 +9,12 @@ param(
     [switch]$CopyToNutstore
 )
 
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Security
 $repo = Split-Path -Parent $PSScriptRoot
 $keystore = Join-Path $env:USERPROFILE 'hermes-mobile-release.jks'
 $credentialFile = Join-Path $env:LOCALAPPDATA 'HermesControl\release-signing-password.dpapi'
+$entropy = [Text.Encoding]::UTF8.GetBytes('HermesControl-release-signing-v1')
 $apk = Join-Path $repo 'app\build\outputs\apk\release\app-release.apk'
 
 if (-not (Test-Path -LiteralPath $keystore)) {
@@ -21,11 +24,15 @@ if (-not (Test-Path -LiteralPath $credentialFile)) {
     throw "Encrypted signing credential was not found. Run scripts\setup-local-release-signing.ps1 first."
 }
 
-$securePassword = Get-Content -LiteralPath $credentialFile -Raw | ConvertTo-SecureString
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+$protectedBytes = [Convert]::FromBase64String((Get-Content -LiteralPath $credentialFile -Raw).Trim())
+$passwordBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+    $protectedBytes,
+    $entropy,
+    [Security.Cryptography.DataProtectionScope]::CurrentUser
+)
 
 try {
-    $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    $password = [Text.Encoding]::UTF8.GetString($passwordBytes)
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = 'C:\Program Files\Git\bin\bash.exe'
     $psi.Arguments = "-lc `"./gradlew assembleRelease -PversionName=$VersionName -PversionCode=$VersionCode`""
@@ -58,9 +65,7 @@ try {
         Write-Output "Release APK built at $apk"
     }
 } finally {
-    if ($bstr -ne [IntPtr]::Zero) {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
+    [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
+    [Array]::Clear($protectedBytes, 0, $protectedBytes.Length)
     $password = $null
-    $securePassword = $null
 }
