@@ -9,6 +9,14 @@ on:
       tag:
         description: "Release tag (e.g. v1.0.0)"
         required: true
+      verification_scope:
+        description: "Verification scope for a manually dispatched release"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - targeted
 
 concurrency:
   group: release-${{ github.ref }}
@@ -67,7 +75,12 @@ jobs:
         run: ./gradlew lintDebug
 
       - name: test
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.verification_scope == 'full' }}
         run: ./gradlew test
+
+      - name: targeted API balance test
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.verification_scope == 'targeted' }}
+        run: ./gradlew testDebugUnitTest --tests com.m57.hermescontrol.data.remote.HermesApiServiceMockWebServerTest
 
   # ── Build release APK ─────────────────────────────────────────────────
   build-release:
