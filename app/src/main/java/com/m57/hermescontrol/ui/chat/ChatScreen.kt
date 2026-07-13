@@ -443,7 +443,13 @@ fun ChatScreen(
                 inputText = inputText,
                 onInputChange = { inputText = it },
                 onSend = {
-                    if (state.hasPendingApproval) {
+                    if (
+                        shouldQueuePrompt(
+                            text = inputText,
+                            isAgentTyping = state.isAgentTyping,
+                            hasPendingApproval = state.hasPendingApproval,
+                        )
+                    ) {
                         viewModel.queueMessage(inputText)
                     } else {
                         viewModel.sendMessage(inputText)
@@ -726,8 +732,14 @@ private fun ChatInputBar(
 ) {
     // Allow sending slash commands even while agent is typing
     val isSlashCommand = inputText.startsWith("/")
+    val shouldQueue =
+        shouldQueuePrompt(
+            text = inputText,
+            isAgentTyping = isAgentTyping,
+            hasPendingApproval = hasPendingApproval,
+        )
     val canSend =
-        if (hasPendingApproval) {
+        if (shouldQueue) {
             inputText.isNotBlank() && isConnected
         } else {
             (inputText.isNotBlank() || pendingAttachments.isNotEmpty()) &&
@@ -934,10 +946,8 @@ private fun ChatInputBar(
                             Text(
                                 if (!isConnected) {
                                     stringResource(R.string.chat_input_placeholder_not_connected)
-                                } else if (hasPendingApproval) {
-                                    stringResource(R.string.chat_input_placeholder_queue_after_approval)
-                                } else if (isAgentTyping) {
-                                    stringResource(R.string.chat_input_placeholder_waiting)
+                                } else if (hasPendingApproval || isAgentTyping) {
+                                    stringResource(R.string.chat_input_placeholder_queue)
                                 } else {
                                     stringResource(R.string.chat_input_placeholder_type_message)
                                 },

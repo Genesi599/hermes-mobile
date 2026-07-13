@@ -54,6 +54,15 @@ internal fun sessionModelCommand(
 
 internal fun queueCommand(prompt: String): String = "/queue $prompt"
 
+internal fun shouldQueuePrompt(
+    text: String,
+    isAgentTyping: Boolean,
+    hasPendingApproval: Boolean,
+): Boolean =
+    text.isNotBlank() &&
+        !text.startsWith("/") &&
+        (isAgentTyping || hasPendingApproval)
+
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val currentSessionId: String? = null,
@@ -696,7 +705,7 @@ class ChatViewModel(
         }
     }
 
-    /** Queue a text message while Hermes is blocked on an approval request. */
+    /** Queue a text message without interrupting the active Hermes turn. */
     fun queueMessage(text: String) {
         val trimmed = text.trim()
         val storageSessionId = _uiState.value.currentSessionId ?: return
