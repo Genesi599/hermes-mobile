@@ -6,6 +6,7 @@ import com.m57.hermescontrol.data.model.ActionStatusResponse
 import com.m57.hermescontrol.data.model.ActiveProfileResponse
 import com.m57.hermescontrol.data.model.AddMcpServerRequest
 import com.m57.hermescontrol.data.model.AgentPluginInstallBody
+import com.m57.hermescontrol.data.model.ApiBalanceResponse
 import com.m57.hermescontrol.data.model.AuxiliaryModelsResponse
 import com.m57.hermescontrol.data.model.BulkDeleteRequest
 import com.m57.hermescontrol.data.model.CheckpointsResponse
@@ -116,6 +117,11 @@ interface HermesApiService {
 
     @GET("api/status")
     suspend fun getStatus(): Response<StatusResponse>
+
+    @GET("api/mobile-balance")
+    suspend fun getApiBalances(
+        @Query("refresh") refresh: Boolean = false,
+    ): Response<ApiBalanceResponse>
 
     @GET("api/sessions")
     suspend fun getSessions(

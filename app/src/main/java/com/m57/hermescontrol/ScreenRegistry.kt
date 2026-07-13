@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Build
@@ -24,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation3.runtime.NavKey
 import com.m57.hermescontrol.ui.achievements.AchievementsScreen as AchievementsScreenContent
+import com.m57.hermescontrol.ui.balance.ApiBalanceScreen as ApiBalanceScreenContent
 import com.m57.hermescontrol.ui.channels.ChannelsScreen as ChannelsScreenContent
 import com.m57.hermescontrol.ui.chat.ChatScreen as ChatScreenContent
 import com.m57.hermescontrol.ui.config.ConfigScreen as ConfigScreenContent
@@ -154,6 +156,12 @@ object ScreenRegistry {
                 Icons.AutoMirrored.Filled.ListAlt,
                 DrawerSection.CONFIGURE,
             ) { sessionId, openDrawer -> ChannelsScreenContent(onOpenDrawer = openDrawer) },
+            ScreenDefinition(
+                ApiBalanceScreen,
+                R.string.screen_api_balance,
+                Icons.Filled.AccountBalanceWallet,
+                DrawerSection.INSPECT,
+            ) { sessionId, openDrawer -> ApiBalanceScreenContent(onOpenDrawer = openDrawer) },
             ScreenDefinition(
                 SystemScreen,
                 R.string.screen_system,

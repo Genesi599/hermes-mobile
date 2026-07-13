@@ -307,6 +307,47 @@ class HermesApiServiceMockWebServerTest {
         }
 
     @Test
+    fun getApiBalances_parsesResponseAndSendsRefreshQuery() =
+        runBlocking {
+            mockServer.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody(
+                        """
+                        {
+                            "updated_at": "2026-07-13T20:30:00+08:00",
+                            "cache_seconds": 300,
+                            "accounts": [
+                                {
+                                    "provider": "Codex",
+                                    "account": "primary",
+                                    "balance": "${'$'}12.34",
+                                    "usage": "Monthly usage",
+                                    "expires": "2026-08-01",
+                                    "status": "OK",
+                                    "low": false,
+                                    "summary": false
+                                }
+                            ]
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val response = api.getApiBalances(refresh = true)
+
+            assertTrue(response.isSuccessful)
+            val body = response.body()
+            assertNotNull(body)
+            assertEquals("2026-07-13T20:30:00+08:00", body!!.updated_at)
+            assertEquals(300, body.cache_seconds)
+            assertEquals(1, body.accounts.size)
+            assertEquals("Codex", body.accounts.single().provider)
+            assertEquals("\$12.34", body.accounts.single().balance)
+            assertEquals("/api/mobile-balance?refresh=true", mockServer.takeRequest().path)
+        }
+
+    @Test
     fun getSessionMessages_encodesSessionIdWithSlashes() =
         runBlocking {
             val sessionId = "session/with/slashes"
