@@ -443,6 +443,11 @@ interface HermesApiService {
         @Query("include_unconfigured") includeUnconfigured: Boolean = true,
     ): Response<ModelOptionsResponse>
 
+    @GET("api/mobile-model-options")
+    suspend fun getMobileModelOptions(
+        @Query("refresh") refresh: Boolean = false,
+    ): Response<ModelOptionsResponse>
+
     @GET("api/model/auxiliary")
     suspend fun getAuxiliaryModels(): Response<AuxiliaryModelsResponse>
 

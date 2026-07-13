@@ -81,7 +81,7 @@ class ModelViewModel :
         viewModelScope.launch {
             val optionsDeferred =
                 async(Dispatchers.IO) {
-                    safeApiCall { ApiClient.hermesApi.getModelOptions(refresh = refresh) }
+                    safeApiCall { ApiClient.hermesApi.getMobileModelOptions(refresh = refresh) }
                 }
             val activeProfileDeferred =
                 async(Dispatchers.IO) {

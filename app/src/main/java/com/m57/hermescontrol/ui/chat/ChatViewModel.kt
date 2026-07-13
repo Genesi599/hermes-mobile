@@ -712,7 +712,12 @@ class ChatViewModel(
         if (_uiState.value.sessionModelProviders.isNotEmpty()) return
 
         viewModelScope.launch {
-            when (val result = withContext(Dispatchers.IO) { safeApiCall { ApiClient.hermesApi.getModelOptions() } }) {
+            when (
+                val result =
+                    withContext(Dispatchers.IO) {
+                        safeApiCall { ApiClient.hermesApi.getMobileModelOptions() }
+                    }
+            ) {
                 is NetworkResult.Success -> {
                     _uiState.update {
                         it.copy(

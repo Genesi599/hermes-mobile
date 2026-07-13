@@ -348,6 +348,38 @@ class HermesApiServiceMockWebServerTest {
         }
 
     @Test
+    fun getMobileModelOptions_parsesAuthenticatedProviderModels() =
+        runBlocking {
+            mockServer.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody(
+                        """
+                        {
+                            "providers": [
+                                {
+                                    "slug": "openai-codex",
+                                    "name": "OpenAI Codex",
+                                    "authenticated": true,
+                                    "models": ["gpt-5.6-terra"]
+                                }
+                            ]
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val response = api.getMobileModelOptions()
+
+            assertTrue(response.isSuccessful)
+            val body = response.body()
+            assertNotNull(body)
+            assertEquals("openai-codex", body!!.providers.single().slug)
+            assertEquals("gpt-5.6-terra", body.providers.single().models!!.single())
+            assertEquals("/api/mobile-model-options?refresh=false", mockServer.takeRequest().path)
+        }
+
+    @Test
     fun getSessionMessages_encodesSessionIdWithSlashes() =
         runBlocking {
             val sessionId = "session/with/slashes"
