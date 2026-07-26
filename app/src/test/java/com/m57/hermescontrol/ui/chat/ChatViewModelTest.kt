@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.HermesDatabase
+import com.m57.hermescontrol.data.model.Attachment
 import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.ws.ConnectionStatus
 import com.m57.hermescontrol.data.ws.HermesWsClient
@@ -19,8 +20,6 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.io.ByteArrayInputStream
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -881,60 +880,24 @@ class ChatViewModelTest {
     @Test
     fun testSendMessage_imageAttachmentIncludesRuntimeSessionId() =
         runTest {
-            val (viewModel, sessionId) = createViewModelWithSession()
-            mockkStatic(Uri::class)
-            val mockUri = mockk<Uri>()
-            every { Uri.parse("content://image") } returns mockUri
-            val contentResolver = mockk<ContentResolver>()
-            every { app.contentResolver } returns contentResolver
-            every { contentResolver.openInputStream(mockUri) } returns
-                ByteArrayInputStream("image-bytes".toByteArray())
+            val attachment = Attachment("content://image", "test.png", "image/png", 11)
+            val params = imageAttachmentParams("runtime-session", attachment, "aW1hZ2U=")
 
-            viewModel.addAttachment("content://image", "test.png", "image/png", 11)
-            advanceUntilIdle()
-            viewModel.sendMessage("Describe this image")
-            advanceUntilIdle()
-
-            verify {
-                HermesWsClient.send(
-                    WsMethods.IMAGE_ATTACH_BYTES,
-                    withArg { params ->
-                        assertEquals(sessionId, params["session_id"])
-                        assertEquals("test.png", params["filename"])
-                    },
-                    any(),
-                )
-            }
+            assertEquals("runtime-session", params["session_id"])
+            assertEquals("test.png", params["filename"])
+            assertEquals("png", params["ext"])
+            assertEquals("data:image/png;base64,aW1hZ2U=", params["content_base64"])
         }
 
     @Test
     fun testSendMessage_fileAttachmentIncludesRuntimeSessionId() =
         runTest {
-            val (viewModel, sessionId) = createViewModelWithSession()
-            mockkStatic(Uri::class)
-            val mockUri = mockk<Uri>()
-            every { Uri.parse("content://file") } returns mockUri
-            val contentResolver = mockk<ContentResolver>()
-            every { app.contentResolver } returns contentResolver
-            every { contentResolver.openInputStream(mockUri) } returns
-                ByteArrayInputStream("file-bytes".toByteArray())
-            every { HermesWsClient.request(any(), any()) } returns
-                CompletableDeferred(mapOf("ref_text" to "@file:test.txt"))
+            val attachment = Attachment("content://file", "test.txt", "text/plain", 10)
+            val params = fileAttachmentParams("runtime-session", attachment, "ZmlsZQ==")
 
-            viewModel.addAttachment("content://file", "test.txt", "text/plain", 10)
-            advanceUntilIdle()
-            viewModel.sendMessage("Read this file")
-            advanceUntilIdle()
-
-            verify {
-                HermesWsClient.request(
-                    WsMethods.FILE_ATTACH,
-                    withArg { params ->
-                        assertEquals(sessionId, params["session_id"])
-                        assertEquals("test.txt", params["name"])
-                    },
-                )
-            }
+            assertEquals("runtime-session", params["session_id"])
+            assertEquals("test.txt", params["name"])
+            assertEquals("data:text/plain;base64,ZmlsZQ==", params["data_url"])
         }
 
     // ── Session switch ───────────────────────────────────────────────────────

@@ -54,6 +54,29 @@ internal fun sessionModelCommand(
 
 internal fun queueCommand(prompt: String): String = "/queue $prompt"
 
+internal fun imageAttachmentParams(
+    sessionId: String,
+    attachment: Attachment,
+    base64: String,
+): Map<String, Any> =
+    mapOf(
+        "session_id" to sessionId,
+        "content_base64" to "data:${attachment.mimeType};base64,$base64",
+        "filename" to attachment.name,
+        "ext" to attachment.fileExtension,
+    )
+
+internal fun fileAttachmentParams(
+    sessionId: String,
+    attachment: Attachment,
+    base64: String,
+): Map<String, Any> =
+    mapOf(
+        "session_id" to sessionId,
+        "data_url" to "data:${attachment.mimeType};base64,$base64",
+        "name" to attachment.name,
+    )
+
 internal fun shouldQueuePrompt(
     text: String,
     isAgentTyping: Boolean,
@@ -657,24 +680,13 @@ class ChatViewModel(
                         // auto-picked by the subsequent prompt.submit
                         wsClient.send(
                             method = WsMethods.IMAGE_ATTACH_BYTES,
-                            params =
-                                mapOf(
-                                    "session_id" to agentSessionId,
-                                    "content_base64" to "data:${attachment.mimeType};base64,$b64",
-                                    "filename" to attachment.name,
-                                    "ext" to attachment.fileExtension,
-                                ),
+                            params = imageAttachmentParams(agentSessionId, attachment, b64),
                         )
                     } else {
                         // Await the @file: ref text so we can embed it in the prompt
                         sendRpcAndAwait(
                             method = WsMethods.FILE_ATTACH,
-                            params =
-                                mapOf(
-                                    "session_id" to agentSessionId,
-                                    "data_url" to "data:${attachment.mimeType};base64,$b64",
-                                    "name" to attachment.name,
-                                ),
+                            params = fileAttachmentParams(agentSessionId, attachment, b64),
                         )?.let { result ->
                             @Suppress("UNCHECKED_CAST")
                             val refText =
