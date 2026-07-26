@@ -730,21 +730,9 @@ private fun ChatInputBar(
     onModelTap: () -> Unit,
     sessionModelEnabled: Boolean,
 ) {
-    // Allow sending slash commands even while agent is typing
-    val isSlashCommand = inputText.startsWith("/")
-    val shouldQueue =
-        shouldQueuePrompt(
-            text = inputText,
-            isAgentTyping = isAgentTyping,
-            hasPendingApproval = hasPendingApproval,
-        )
     val canSend =
-        if (shouldQueue) {
-            inputText.isNotBlank() && isConnected
-        } else {
-            (inputText.isNotBlank() || pendingAttachments.isNotEmpty()) &&
-                isConnected && (!isAgentTyping || isSlashCommand)
-        }
+        (inputText.isNotBlank() || pendingAttachments.isNotEmpty()) &&
+            isConnected
 
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
