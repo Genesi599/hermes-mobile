@@ -67,6 +67,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Keep the attachment-fix build installable beside an existing release/dev app.
+            applicationIdSuffix = ".attachmentfix"
+            versionNameSuffix = "-attachment-fix"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
