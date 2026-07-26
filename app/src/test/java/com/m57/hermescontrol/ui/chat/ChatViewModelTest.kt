@@ -19,6 +19,8 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.io.ByteArrayInputStream
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -874,6 +876,65 @@ class ChatViewModelTest {
             assertTrue(viewModel.uiState.value.isAgentTyping)
 
             verify { HermesWsClient.sendMessage(sessionId, "Hello Hermes", any()) }
+        }
+
+    @Test
+    fun testSendMessage_imageAttachmentIncludesRuntimeSessionId() =
+        runTest {
+            val (viewModel, sessionId) = createViewModelWithSession()
+            mockkStatic(Uri::class)
+            val mockUri = mockk<Uri>()
+            every { Uri.parse("content://image") } returns mockUri
+            val contentResolver = mockk<ContentResolver>()
+            every { app.contentResolver } returns contentResolver
+            every { contentResolver.openInputStream(mockUri) } returns
+                ByteArrayInputStream("image-bytes".toByteArray())
+
+            viewModel.addAttachment("content://image", "test.png", "image/png", 11)
+            advanceUntilIdle()
+            viewModel.sendMessage("Describe this image")
+            advanceUntilIdle()
+
+            verify {
+                HermesWsClient.send(
+                    WsMethods.IMAGE_ATTACH_BYTES,
+                    withArg { params ->
+                        assertEquals(sessionId, params["session_id"])
+                        assertEquals("test.png", params["filename"])
+                    },
+                    any(),
+                )
+            }
+        }
+
+    @Test
+    fun testSendMessage_fileAttachmentIncludesRuntimeSessionId() =
+        runTest {
+            val (viewModel, sessionId) = createViewModelWithSession()
+            mockkStatic(Uri::class)
+            val mockUri = mockk<Uri>()
+            every { Uri.parse("content://file") } returns mockUri
+            val contentResolver = mockk<ContentResolver>()
+            every { app.contentResolver } returns contentResolver
+            every { contentResolver.openInputStream(mockUri) } returns
+                ByteArrayInputStream("file-bytes".toByteArray())
+            every { HermesWsClient.request(any(), any()) } returns
+                CompletableDeferred(mapOf("ref_text" to "@file:test.txt"))
+
+            viewModel.addAttachment("content://file", "test.txt", "text/plain", 10)
+            advanceUntilIdle()
+            viewModel.sendMessage("Read this file")
+            advanceUntilIdle()
+
+            verify {
+                HermesWsClient.request(
+                    WsMethods.FILE_ATTACH,
+                    withArg { params ->
+                        assertEquals(sessionId, params["session_id"])
+                        assertEquals("test.txt", params["name"])
+                    },
+                )
+            }
         }
 
     // ── Session switch ───────────────────────────────────────────────────────

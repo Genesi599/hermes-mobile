@@ -659,6 +659,7 @@ class ChatViewModel(
                             method = WsMethods.IMAGE_ATTACH_BYTES,
                             params =
                                 mapOf(
+                                    "session_id" to agentSessionId,
                                     "content_base64" to "data:${attachment.mimeType};base64,$b64",
                                     "filename" to attachment.name,
                                     "ext" to attachment.fileExtension,
@@ -670,6 +671,7 @@ class ChatViewModel(
                             method = WsMethods.FILE_ATTACH,
                             params =
                                 mapOf(
+                                    "session_id" to agentSessionId,
                                     "data_url" to "data:${attachment.mimeType};base64,$b64",
                                     "name" to attachment.name,
                                 ),
