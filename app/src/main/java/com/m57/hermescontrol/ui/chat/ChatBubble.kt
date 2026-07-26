@@ -337,6 +337,7 @@ private fun AssistantBubble(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var showCopyButton by remember { mutableStateOf(false) }
+    var previewSource by remember { mutableStateOf<String?>(null) }
     val desktopMedia = remember(message.content) { DesktopMedia.parse(message.content) }
 
     // Auto-dismiss copy button after 4 seconds
@@ -392,7 +393,8 @@ private fun AssistantBubble(
                                     .fillMaxWidth()
                                     .heightIn(min = 120.dp, max = 420.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .testTag("desktop_media_image"),
+                                                                        .clickable { previewSource = desktopMedia.url() }
+                                                                        .testTag("desktop_media_image"),
                             contentScale = ContentScale.Fit,
                         )
                     } else {
@@ -417,6 +419,14 @@ private fun AssistantBubble(
                         )
                     }
                 }
+            }
+
+            previewSource?.let { source ->
+                ImagePreviewDialog(
+                    source = source,
+                    fileName = desktopMedia?.fileName ?: "hermes-image",
+                    onDismiss = { previewSource = null },
+                )
             }
 
             // Copy button overlay — top-right of the bubble
@@ -2293,16 +2303,27 @@ private fun InlineAttachment(
     textColor: Color,
 ) {
     if (attachment.isImage) {
-        // Image attachment — show as a rounded thumbnail
-        AsyncImage(
-            model = attachment.uri,
-            contentDescription = attachment.name,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp)),
-            contentScale = ContentScale.FillWidth,
-        )
+        var showPreview by remember { mutableStateOf(false) }
+        Box {
+            // Image attachment — show a rounded thumbnail that opens the viewer.
+            AsyncImage(
+                model = attachment.uri,
+                contentDescription = attachment.name,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showPreview = true },
+                contentScale = ContentScale.FillWidth,
+            )
+            if (showPreview) {
+                ImagePreviewDialog(
+                    source = attachment.uri,
+                    fileName = attachment.name,
+                    onDismiss = { showPreview = false },
+                )
+            }
+        }
     } else {
         // Non-image file — show a card with file icon and name
         Surface(
