@@ -1498,12 +1498,28 @@ private fun StreamingBubbleWithTypingEffect(
     )
 }
 
-private fun LazyListState.isAtBottom(threshold: Int = 3): Boolean {
+internal fun isLastItemAtViewportEnd(
+    totalItemsCount: Int,
+    lastVisibleItemIndex: Int,
+    lastItemEndOffset: Int,
+    viewportEndOffset: Int,
+    thresholdPx: Int = 16,
+): Boolean =
+    totalItemsCount == 0 ||
+        (lastVisibleItemIndex == totalItemsCount - 1 && lastItemEndOffset <= viewportEndOffset + thresholdPx)
+
+private fun LazyListState.isAtBottom(thresholdPx: Int = 16): Boolean {
     val layoutInfo = this.layoutInfo
     val visibleItems = layoutInfo.visibleItemsInfo
     if (visibleItems.isEmpty()) return true
     val lastVisibleItem = visibleItems.last()
-    return lastVisibleItem.index >= layoutInfo.totalItemsCount - threshold
+    return isLastItemAtViewportEnd(
+        totalItemsCount = layoutInfo.totalItemsCount,
+        lastVisibleItemIndex = lastVisibleItem.index,
+        lastItemEndOffset = lastVisibleItem.offset + lastVisibleItem.size,
+        viewportEndOffset = layoutInfo.viewportEndOffset,
+        thresholdPx = thresholdPx,
+    )
 }
 
 @Composable
