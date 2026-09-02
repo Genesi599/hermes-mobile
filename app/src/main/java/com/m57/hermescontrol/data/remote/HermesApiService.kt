@@ -137,6 +137,10 @@ interface HermesApiService {
         @Path("id", encoded = true) sessionId: String,
         @Query("limit") limit: Int? = null,
         @Query("offset") offset: Int = 0,
+        // "latest" anchors the page at the newest message and returns it in
+        // chronological order — lets the phone load only the tail of a long
+        // desktop transcript without knowing the total message count first.
+        @Query("order") order: String? = null,
     ): Response<SessionMessagesResponse>
 
     @GET("api/sessions/stats")

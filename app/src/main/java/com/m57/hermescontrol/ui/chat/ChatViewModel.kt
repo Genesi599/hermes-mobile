@@ -47,6 +47,9 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "ChatViewModel"
 private const val MESSAGE_PAGE_SIZE = 150
 
+/** Phone keeps only the newest N messages of a desktop transcript (user preference). */
+private const val MOBILE_TAIL_MESSAGE_COUNT = 20
+
 internal fun sessionModelCommand(
     provider: String,
     model: String,
@@ -154,7 +157,6 @@ class ChatViewModel(
 
     /** Runtime TUI session returned by session.resume; Desktop storage keeps the original ID. */
     private var runtimeSessionId: String? = null
-    private var loadedMessageOffset = 0
     private var isSyncingMessages = false
     val streamingState: StateFlow<StreamingState> = _streamingState.asStateFlow()
 
@@ -1026,7 +1028,6 @@ class ChatViewModel(
 
         // Reset streaming and pagination state before resuming the Desktop session.
         runtimeSessionId = null
-        loadedMessageOffset = 0
         streamingController.resetStreaming()
         _uiState.update {
             val title = it.sessions.find { s -> s.id == sessionId }?.title ?: "Hermes"
@@ -1058,7 +1059,7 @@ class ChatViewModel(
 
     private fun loadCachedMessages(sessionId: String): Job =
         viewModelScope.launch(Dispatchers.IO) {
-            val cachedMessages = repo.loadMessages(sessionId)
+            val cachedMessages = repo.loadLatestMessages(sessionId, MOBILE_TAIL_MESSAGE_COUNT)
             _uiState.update { state ->
                 // Only replace if still showing this session
                 if (state.currentSessionId == sessionId) {
@@ -1071,22 +1072,27 @@ class ChatViewModel(
 
     private fun loadSessionMessages(sessionId: String) {
         viewModelScope.launch {
-            val messageCount = fetchServerMessageCount(sessionId)
-            val offset = (messageCount - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
-            val result = fetchMessagePage(sessionId, offset, MESSAGE_PAGE_SIZE)
+            // Load the newest page directly (order=latest) — one small request
+            // regardless of how long the desktop transcript grew while the
+            // phone was away. No message-count probe needed.
+            val result = fetchMessagePage(sessionId, offset = 0, limit = MOBILE_TAIL_MESSAGE_COUNT, order = "latest")
             when (result) {
                 is NetworkResult.Success -> {
-                    val chatMessages = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset)
-                    loadedMessageOffset = offset
+                    val chatMessages = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset = 0, anchorLatest = true)
                     withContext(Dispatchers.IO) {
-                        repo.persistMessages(chatMessages, sessionId)
+                        repo.replaceMessages(chatMessages, sessionId)
                     }
                     _uiState.update { state ->
                         if (state.currentSessionId != sessionId) return@update state
+                        // pagination.hasMore is absent from the dashboard today —
+                        // fall back to "server returned a full page" as the
+                        // signal that older messages exist.
+                        val returned = result.data.messages.orEmpty().size
+                        val hasOlder = result.data.pagination?.hasMore ?: (returned >= MOBILE_TAIL_MESSAGE_COUNT)
                         state.copy(
                             messages = chatMessages,
                             isLoading = false,
-                            hasOlderMessages = offset > 0,
+                            hasOlderMessages = hasOlder,
                             isLoadingOlder = false,
                         )
                     }
@@ -1109,23 +1115,24 @@ class ChatViewModel(
     fun loadOlderMessages() {
         val state = _uiState.value
         val sessionId = state.currentSessionId ?: return
-        if (!state.hasOlderMessages || state.isLoadingOlder || loadedMessageOffset <= 0) return
-        val oldOffset = loadedMessageOffset
-        val newOffset = (oldOffset - MESSAGE_PAGE_SIZE).coerceAtLeast(0)
-        val limit = oldOffset - newOffset
+        if (!state.hasOlderMessages || state.isLoadingOlder) return
         _uiState.update { it.copy(isLoadingOlder = true) }
         viewModelScope.launch {
-            when (val result = fetchMessagePage(sessionId, newOffset, limit)) {
+            val currentCount = state.messages.count { serverMessageIndex(it.id, sessionId) != null }
+            val limit = minOf(MESSAGE_PAGE_SIZE, currentCount + MESSAGE_PAGE_SIZE)
+            val result = fetchMessagePage(sessionId, offset = 0, limit = limit, order = "latest")
+            when (result) {
                 is NetworkResult.Success -> {
-                    val older = mapServerMessages(sessionId, result.data.messages.orEmpty(), newOffset)
-                    loadedMessageOffset = newOffset
-                    withContext(Dispatchers.IO) { repo.persistMessages(older, sessionId) }
+                    val page = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset = 0, anchorLatest = true)
+                    withContext(Dispatchers.IO) { repo.replaceMessages(page, sessionId) }
                     _uiState.update { current ->
                         if (current.currentSessionId != sessionId) return@update current
+                        val returned = result.data.messages.orEmpty().size
+                        val hasOlder = result.data.pagination?.hasMore ?: (returned >= limit)
                         current.copy(
-                            messages = (older + current.messages).distinctBy { it.id },
+                            messages = (page + current.messages).distinctBy { it.id },
                             isLoadingOlder = false,
-                            hasOlderMessages = newOffset > 0,
+                            hasOlderMessages = hasOlder,
                         )
                     }
                 }
@@ -1145,20 +1152,16 @@ class ChatViewModel(
         ) {
             return
         }
-        val nextOffset =
-            state.messages
-                .mapNotNull { serverMessageIndex(it.id, sessionId) }
-                .maxOrNull()
-                ?.plus(1)
-                ?: loadedMessageOffset
+        val serverCount = state.messages.count { serverMessageIndex(it.id, sessionId) != null }
+        val nextLimit = (serverCount + 1).coerceAtLeast(MOBILE_TAIL_MESSAGE_COUNT)
         isSyncingMessages = true
         viewModelScope.launch {
             try {
-                when (val result = fetchMessagePage(sessionId, nextOffset, MESSAGE_PAGE_SIZE)) {
+                when (val result = fetchMessagePage(sessionId, offset = 0, limit = nextLimit, order = "latest")) {
                     is NetworkResult.Success -> {
-                        val incoming = mapServerMessages(sessionId, result.data.messages.orEmpty(), nextOffset)
+                        val incoming = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset = 0, anchorLatest = true)
                         if (incoming.isEmpty()) return@launch
-                        withContext(Dispatchers.IO) { repo.persistMessages(incoming, sessionId) }
+                        withContext(Dispatchers.IO) { repo.replaceMessages(incoming, sessionId) }
                         _uiState.update { current ->
                             if (current.currentSessionId != sessionId) return@update current
                             val unmatched = incoming.map { it.role to it.content }.toMutableList()
@@ -1188,48 +1191,20 @@ class ChatViewModel(
         }
     }
 
-    private suspend fun fetchServerMessageCount(sessionId: String): Int {
-        val known = _uiState.value.sessions.find { it.id == sessionId }?.messageCount
-        val result =
-            withContext(Dispatchers.IO) {
-                safeApiCall { ApiClient.hermesApi.getSessions(limit = 500, offset = 0, order = "recent") }
-            }
-        if (result is NetworkResult.Success) {
-            val sessions = result.data.sessions.orEmpty()
-            val count = sessions.find { it.id == sessionId }?.message_count
-            if (count != null) {
-                _uiState.update { current ->
-                    current.copy(
-                        sessions =
-                            current.sessions.map {
-                                if (it.id == sessionId) {
-                                    it.copy(
-                                        messageCount = count,
-                                    )
-                                } else {
-                                    it
-                                }
-                            },
-                    )
-                }
-                return count
-            }
-        }
-        return known ?: _uiState.value.messages.size
-    }
-
     private suspend fun fetchMessagePage(
         sessionId: String,
         offset: Int,
         limit: Int,
+        order: String? = null,
     ) = withContext(Dispatchers.IO) {
-        safeApiCall { ApiClient.hermesApi.getSessionMessages(sessionId, limit = limit, offset = offset) }
+        safeApiCall { ApiClient.hermesApi.getSessionMessages(sessionId, limit = limit, offset = offset, order = order) }
     }
 
     private fun mapServerMessages(
         sessionId: String,
         messages: List<SessionMessage>,
         offset: Int,
+        anchorLatest: Boolean = false,
     ): List<ChatMessage> =
         messages.mapIndexed { index, msg ->
             val role =
@@ -1239,7 +1214,17 @@ class ChatViewModel(
                     "tool" -> MessageRole.TOOL
                     else -> MessageRole.ASSISTANT
                 }
+            // Keyset-stable id: with anchorLatest the page is the transcript's
+            // tail, but its position within the full history shifts as new
+            // messages arrive. Suffix with content+role fingerprint so ids
+            // stay unique across pages without knowing absolute indices.
             val globalIndex = offset + index
+            val id =
+                if (anchorLatest) {
+                    "rest-$sessionId-t${index}-${(msg.role ?: "a")}-${msg.content.orEmpty().hashCode()}"
+                } else {
+                    "rest-$sessionId-$globalIndex"
+                }
             val timestamp =
                 msg.timestampText
                     ?.toDoubleOrNull()
@@ -1247,7 +1232,7 @@ class ChatViewModel(
                     ?.toLong()
                     ?: System.currentTimeMillis()
             ChatMessage(
-                id = "rest-$sessionId-$globalIndex",
+                id = id,
                 role = role,
                 content = msg.content.orEmpty(),
                 timestamp = timestamp,

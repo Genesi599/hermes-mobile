@@ -6,6 +6,17 @@ import kotlinx.serialization.json.JsonPrimitive
 @Serializable
 data class SessionMessagesResponse(
     val messages: List<SessionMessage>,
+    val pagination: SessionMessagesPagination? = null,
+)
+
+@Serializable
+data class SessionMessagesPagination(
+    val limit: Int? = null,
+    val offset: Int? = null,
+    val order: String? = null,
+    val returned: Int? = null,
+    /** Derived by callers when absent — dashboard omits it today. */
+    val hasMore: Boolean? = null,
 )
 
 @Serializable

@@ -19,12 +19,25 @@ class FakeChatMessageDao : ChatMessageDao {
             .filter { it.sessionId == sessionId }
             .sortedBy { it.timestamp }
 
+    override suspend fun getLatestMessagesForSession(
+        sessionId: String,
+        limit: Int,
+    ): List<ChatMessageEntity> =
+        messages.values
+            .filter { it.sessionId == sessionId }
+            .sortedByDescending { it.timestamp }
+            .take(limit)
+
     override suspend fun upsert(message: ChatMessageEntity) {
         messages[message.id] = message
     }
 
     override suspend fun upsertAll(messageList: List<ChatMessageEntity>) {
         messageList.forEach { messages[it.id] = it }
+    }
+
+    override suspend fun deleteMessagesForSession(sessionId: String) {
+        messages.entries.removeIf { it.value.sessionId == sessionId }
     }
 
     /** Direct access for test setup — bypasses the suspend modifier. */

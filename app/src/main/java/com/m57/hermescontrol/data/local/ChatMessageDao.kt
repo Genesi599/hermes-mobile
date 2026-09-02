@@ -13,9 +13,18 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages WHERE session_id = :sessionId ORDER BY timestamp ASC")
     suspend fun getMessagesForSession(sessionId: String): List<ChatMessageEntity>
 
+    @Query("SELECT * FROM chat_messages WHERE session_id = :sessionId ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getLatestMessagesForSession(
+        sessionId: String,
+        limit: Int,
+    ): List<ChatMessageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(message: ChatMessageEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(messages: List<ChatMessageEntity>)
+
+    @Query("DELETE FROM chat_messages WHERE session_id = :sessionId")
+    suspend fun deleteMessagesForSession(sessionId: String)
 }

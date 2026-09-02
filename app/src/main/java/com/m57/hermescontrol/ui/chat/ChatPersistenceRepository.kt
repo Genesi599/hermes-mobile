@@ -33,4 +33,26 @@ open class ChatPersistenceRepository(
     /** Load cached messages for a session from Room. */
     suspend fun loadMessages(sessionId: String): List<ChatMessage> =
         dao.getMessagesForSession(sessionId).map { it.toUiModel() }
+
+    /**
+     * Load only the newest [limit] cached messages for a session (ascending
+     * order). Used as the instant cold-start cache while the REST fetch runs.
+     */
+    suspend fun loadLatestMessages(
+        sessionId: String,
+        limit: Int,
+    ): List<ChatMessage> =
+        dao.getLatestMessagesForSession(sessionId, limit)
+            .sortedBy { it.timestamp }
+            .map { it.toUiModel() }
+
+    /** Replace the cached transcript for a session (truncate to newest only). */
+    suspend fun replaceMessages(
+        messages: List<ChatMessage>,
+        sessionId: String,
+    ) {
+        val entities = messages.map { it.toEntity(sessionId) }
+        dao.deleteMessagesForSession(sessionId)
+        dao.upsertAll(entities)
+    }
 }
