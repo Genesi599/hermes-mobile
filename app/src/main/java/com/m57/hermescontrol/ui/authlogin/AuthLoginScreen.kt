@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -174,6 +176,29 @@ fun AuthLoginScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 enabled = state.authMode == null,
             )
+
+            // TLS toggle
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+            ) {
+                Switch(
+                    checked = state.useTls,
+                    onCheckedChange = viewModel::onUseTlsChange,
+                    enabled = state.authMode == null,
+                )
+                Text(
+                    text = stringResource(R.string.connect_use_tls),
+                    style =
+                        MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
 
             // Probe / probing indicator
             if (state.probing) {

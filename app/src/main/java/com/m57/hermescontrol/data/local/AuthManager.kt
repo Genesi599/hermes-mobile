@@ -441,6 +441,25 @@ object AuthManager {
         }
     }
 
+    // ── TLS ──────────────────────────────────────────────────────────────
+
+    fun getUseTls(): Boolean = serverStore.getLatestState().resolvedUseTls
+
+    fun setUseTls(useTls: Boolean) {
+        val selectedId =
+            getSelectedProfileId() ?: run {
+                ensureDefaultSelected()
+                DEFAULT_PROFILE_ID
+            }
+        serverStore.update { state ->
+            val profiles =
+                state.connectionProfiles.map {
+                    if (it.id == selectedId) it.copy(useTls = useTls) else it
+                }
+            state.copy(connectionProfiles = profiles)
+        }
+    }
+
     // ── Auto-reconnect ───────────────────────────────────────────────────
 
     fun isAutoReconnect(): Boolean = serverStore.getLatestState().autoReconnect

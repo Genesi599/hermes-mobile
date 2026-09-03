@@ -40,6 +40,7 @@ enum class DashboardAuthMode {
 data class AuthLoginUiState(
     val host: String = "127.0.0.1",
     val port: String = "9119",
+    val useTls: Boolean = false,
     val token: String = "",
     val username: String = "",
     val password: String = "",
@@ -59,6 +60,7 @@ class AuthLoginViewModel(
             AuthLoginUiState(
                 host = AuthManager.getHost(),
                 port = AuthManager.getPort().toString(),
+                useTls = AuthManager.getUseTls(),
             ),
         )
     val uiState: StateFlow<AuthLoginUiState> = _uiState.asStateFlow()
@@ -110,6 +112,10 @@ class AuthLoginViewModel(
         }
     }
 
+    fun onUseTlsChange(value: Boolean) {
+        _uiState.update { it.copy(useTls = value, errorMessage = null, authMode = null) }
+    }
+
     fun onTokenChange(value: String) {
         _uiState.update { it.copy(token = value.trim(), errorMessage = null) }
     }
@@ -142,7 +148,7 @@ class AuthLoginViewModel(
         viewModelScope.launch {
             val result =
                 withContext(Dispatchers.IO) {
-                    probeDashboardInternal(state.host, port)
+                    probeDashboardInternal(state.host, port, state.useTls)
                 }
             _uiState.update {
                 it.copy(
@@ -177,8 +183,11 @@ class AuthLoginViewModel(
     private fun probeDashboardInternal(
         host: String,
         port: Int,
+        useTls: Boolean = false,
     ): ProbeResult? {
-        val baseUrl = "http://$host:$port"
+        val scheme = if (useTls) "https" else "http"
+        val portPart = if (useTls && port == AuthManager.DEFAULT_TLS_PORT) "" else ":$port"
+        val baseUrl = "$scheme://$host$portPart"
 
         // Step 1: Check if dashboard is reachable via /api/status (always public)
         val statusOk =
@@ -274,16 +283,16 @@ class AuthLoginViewModel(
                 withContext(Dispatchers.IO) {
                     when (state.authMode) {
                         DashboardAuthMode.TOKEN_ONLY -> {
-                            val token = connectTokenOnly(state.host, port, state.token)
+                            val token = connectTokenOnly(state.host, port, state.token, state.useTls)
                             if (token != null) ConnectResult(wsCredential = token) else null
                         }
 
                         DashboardAuthMode.BASIC_AUTH -> {
-                            connectBasicAuth(state.host, port, state.username, state.password)
+                            connectBasicAuth(state.host, port, state.username, state.password, state.useTls)
                         }
 
                         DashboardAuthMode.ALL -> {
-                            connectBasicAuth(state.host, port, state.username, state.password)
+                            connectBasicAuth(state.host, port, state.username, state.password, state.useTls)
                         }
 
                         null -> {
@@ -295,6 +304,7 @@ class AuthLoginViewModel(
             if (result != null) {
                 AuthManager.setHost(state.host)
                 AuthManager.setPort(port)
+                AuthManager.setUseTls(state.useTls)
                 AuthManager.setToken(result.wsCredential)
                 if (state.authMode == DashboardAuthMode.TOKEN_ONLY) {
                     // Loopback mode — no session cookie; ensure any stale one
@@ -322,6 +332,7 @@ class AuthLoginViewModel(
         host: String,
         port: Int,
         token: String,
+        useTls: Boolean = false,
     ): String? {
         if (token.isBlank()) {
             _uiState.update {
@@ -330,7 +341,7 @@ class AuthLoginViewModel(
             return null
         }
 
-        val tempApi = ApiClient.createTempService(host, port, token)
+        val tempApi = ApiClient.createTempService(host, port, token, useTls)
         val result = safeApiCall { tempApi.getSessions() }
 
         return when (result) {
@@ -376,6 +387,7 @@ class AuthLoginViewModel(
         port: Int,
         username: String,
         password: String,
+        useTls: Boolean = false,
     ): ConnectResult? {
         if (username.isBlank()) {
             _uiState.update {
@@ -390,7 +402,9 @@ class AuthLoginViewModel(
             return null
         }
 
-        val baseUrl = "http://$host:$port"
+        val scheme = if (useTls) "https" else "http"
+        val portPart = if (useTls && port == AuthManager.DEFAULT_TLS_PORT) "" else ":$port"
+        val baseUrl = "$scheme://$host$portPart"
         val jsonBody = """{"provider":"basic","username":"$username","password":"$password","next":""}"""
 
         try {
