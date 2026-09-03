@@ -949,7 +949,8 @@ class ChatViewModel(
                     withContext(Dispatchers.IO) {
                         safeApiCall {
                             ApiClient.hermesApi.getSessions(
-                                limit = 500,
+                                // Backend caps limit at 100 (422 above that); paginate if more needed.
+                                limit = 100,
                                 offset = 0,
                                 order = "recent",
                             )

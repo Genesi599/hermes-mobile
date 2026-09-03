@@ -67,6 +67,7 @@ fun mapHttpError(
             405 -> "Method Not Allowed (HTTP 405)."
             408 -> "Request Timeout (HTTP 408): The server timed out waiting for the request."
             409 -> "Conflict (HTTP 409): The request conflicts with current server state."
+            422 -> "Unprocessable Content (HTTP 422): The server rejected a request parameter."
             429 -> "Too Many Requests (HTTP 429): Rate limit exceeded."
             in 500..599 -> "Server Error (HTTP $code): The server encountered an error."
             else -> "HTTP Error $code: Unexpected server response."
