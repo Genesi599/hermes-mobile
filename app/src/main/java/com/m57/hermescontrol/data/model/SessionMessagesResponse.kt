@@ -25,7 +25,14 @@ data class SessionMessage(
     val content: String? = null,
     val timestamp: JsonElement? = null,
     val type: String? = null,
+    val reasoning: String? = null,
+    val reasoning_content: String? = null,
 ) {
     val timestampText: String?
         get() = (timestamp as? JsonPrimitive)?.content
+
+    /** First non-empty reasoning payload (structured field wins over content-embedded). */
+    val reasoningText: String?
+        get() = reasoning?.takeIf { it.isNotBlank() }
+            ?: reasoning_content?.takeIf { it.isNotBlank() }
 }

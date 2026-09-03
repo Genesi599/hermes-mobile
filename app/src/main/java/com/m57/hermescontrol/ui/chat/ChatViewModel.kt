@@ -1237,6 +1237,7 @@ class ChatViewModel(
                 content = msg.content.orEmpty(),
                 timestamp = timestamp,
                 isStreaming = false,
+                reasoningText = msg.reasoningText.orEmpty().takeIf { role == MessageRole.ASSISTANT } ?: "",
             )
         }
 
