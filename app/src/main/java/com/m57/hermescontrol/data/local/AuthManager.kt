@@ -10,6 +10,7 @@ import com.m57.hermescontrol.data.config.ServerStoreMigration
 import com.m57.hermescontrol.data.config.ServerStoreSerializer
 import com.m57.hermescontrol.data.config.resolvedHost
 import com.m57.hermescontrol.data.config.resolvedPort
+import com.m57.hermescontrol.data.config.resolvedUseTls
 import com.m57.hermescontrol.data.model.PinnedModel
 import com.m57.hermescontrol.data.remote.CookieManager
 import com.m57.hermescontrol.theme.BottomNavDisplayMode
@@ -37,6 +38,8 @@ object AuthManager {
 
     const val DEFAULT_PROFILE_ID = "default"
     const val DEFAULT_PROFILE_NAME = "Default"
+    /** Port value that means "standard TLS port 443" — omitted from generated URLs. */
+    const val DEFAULT_TLS_PORT = 443
     private const val KEY_SELECTED_PROFILE_ID = "selected_profile_id"
     private const val KEY_SESSION_COOKIE = "session_cookie"
     private const val KEY_LEGACY_TOKEN = "auth_token"
@@ -469,7 +472,17 @@ object AuthManager {
     /** Convenience: build the base URL from current host + port.
      *  NOTE: Uses plain http:// — intended for trusted local network only.
      *  Exposing the host to a hostile LAN risks token interception. */
-    fun baseUrl(): String = "http://${getHost()}:${getPort()}/"
+    fun baseUrl(): String {
+        val scheme = if (serverStore.getLatestState().resolvedUseTls) "https" else "http"
+        // TLS terminator (nginx) listens on 443 — omit the port instead of forcing :443.
+        val portPart =
+            if (serverStore.getLatestState().resolvedUseTls && getPort() == DEFAULT_TLS_PORT) {
+                ""
+            } else {
+                ":${getPort()}"
+            }
+        return "$scheme://${getHost()}$portPart/"
+    }
 
     /** Convenience: build the WebSocket URL with token query param.
      *  NOTE: Token in query string — trusted local network only. */
@@ -477,7 +490,14 @@ object AuthManager {
         val raw = serverStore.getLatestState().wsAuthParam
         val authParam = if (raw.isNullOrBlank()) "token" else raw
         val credential = getToken().orEmpty()
-        return "ws://${getHost()}:${getPort()}/api/ws?$authParam=$credential"
+        val scheme = if (serverStore.getLatestState().resolvedUseTls) "wss" else "ws"
+        val portPart =
+            if (serverStore.getLatestState().resolvedUseTls && getPort() == DEFAULT_TLS_PORT) {
+                ""
+            } else {
+                ":${getPort()}"
+            }
+        return "$scheme://${getHost()}$portPart/api/ws?$authParam=$credential"
     }
 
     // ── Bottom nav bar items ──────────────────────────────────────────────
@@ -502,6 +522,14 @@ object AuthManager {
 
     fun setTypingEffectDelayMs(delayMs: Int) {
         serverStore.update { it.copy(typingEffectDelayMs = delayMs) }
+    }
+
+    // ── Reasoning display ───────────────────────────────────────────────
+
+    fun isShowReasoningEnabled(): Boolean = serverStore.getLatestState().showReasoningEnabled
+
+    fun setShowReasoningEnabled(enabled: Boolean) {
+        serverStore.update { it.copy(showReasoningEnabled = enabled) }
     }
 
     // ── Bottom Nav Display Mode ──────────────────────────────────────────

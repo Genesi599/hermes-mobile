@@ -9,4 +9,6 @@ data class ConnectionProfile(
     val name: String,
     val host: String,
     val port: Int,
+    /** When true, baseUrl uses https:// and wsUrl uses wss://. */
+    val useTls: Boolean = false,
 )

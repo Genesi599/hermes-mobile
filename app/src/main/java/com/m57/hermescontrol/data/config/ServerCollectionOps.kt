@@ -42,3 +42,12 @@ val ServerStoreState.resolvedPort: Int
         val selected = connectionProfiles.firstOrNull { it.id == selectedProfileId }
         return selected?.port ?: port
     }
+
+/**
+ * Per-profile TLS flag.
+ *
+ * ConnectionProfile gained an optional useTls flag (defaults false = legacy http).
+ * resolvedUseTls keeps old serialized states working: missing flag falls back to false.
+ */
+val ServerStoreState.resolvedUseTls: Boolean
+    get() = connectionProfiles.firstOrNull { it.id == selectedProfileId }?.useTls ?: false

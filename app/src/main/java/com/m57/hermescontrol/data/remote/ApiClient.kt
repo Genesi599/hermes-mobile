@@ -44,6 +44,7 @@ object ApiClient {
         host: String,
         port: Int,
         token: String,
+        useTls: Boolean = false,
     ): HermesApiService {
         val tempAuthInterceptor =
             Interceptor { chain ->
@@ -67,10 +68,12 @@ object ApiClient {
                 .addInterceptor(tempAuthInterceptor)
                 .build()
 
+        val scheme = if (useTls) "https" else "http"
+        val portPart = if (useTls && port == AuthManager.DEFAULT_TLS_PORT) "" else ":$port"
         val tempRetrofit =
             Retrofit
                 .Builder()
-                .baseUrl("http://$host:$port/")
+                .baseUrl("$scheme://$host$portPart/")
                 .client(tempOkHttp)
                 .addConverterFactory(OkHttpProvider.json.asConverterFactory("application/json".toMediaType()))
                 .build()

@@ -33,6 +33,7 @@ data class ConnectUiState(
     val saveProfile: Boolean = false,
     val profiles: List<ConnectionProfile> = emptyList(),
     val selectedProfile: ConnectionProfile? = null,
+    val useTls: Boolean = false,
 )
 
 class ConnectViewModel(
@@ -98,6 +99,10 @@ class ConnectViewModel(
         _uiState.update { it.copy(port = value.filter { c -> c.isDigit() }, errorMessage = null) }
     }
 
+    fun onUseTlsChange(value: Boolean) {
+        _uiState.update { it.copy(useTls = value, errorMessage = null) }
+    }
+
     fun connect() {
         val state = _uiState.value
         if (state.token.isBlank()) {
@@ -119,7 +124,7 @@ class ConnectViewModel(
         viewModelScope.launch {
             val result =
                 withContext(Dispatchers.IO) {
-                    val tempApi = ApiClient.createTempService(state.host, port, state.token)
+                    val tempApi = ApiClient.createTempService(state.host, port, state.token, state.useTls)
                     safeApiCall { tempApi.getStatus() }
                 }
             when (result) {
@@ -142,15 +147,16 @@ class ConnectViewModel(
                                 )
                             }
                         val targetProfile =
-                            if (existingIndex >= 0) {
-                                currentProfiles[existingIndex].copy(host = state.host, port = port)
-                            } else {
-                                ConnectionProfile(
-                                    name = state.profileName,
-                                    host = state.host,
-                                    port = port,
-                                )
-                            }
+                                if (existingIndex >= 0) {
+                                    currentProfiles[existingIndex].copy(host = state.host, port = port, useTls = state.useTls)
+                                } else {
+                                    ConnectionProfile(
+                                        name = state.profileName,
+                                        host = state.host,
+                                        port = port,
+                                        useTls = state.useTls,
+                                    )
+                                }
                         val updatedProfiles =
                             if (existingIndex >= 0) {
                                 currentProfiles.mapIndexed { idx, p -> if (idx == existingIndex) targetProfile else p }

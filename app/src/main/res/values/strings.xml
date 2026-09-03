@@ -233,6 +233,7 @@
     <string name="connect_action_show_manual">Enter manually instead</string>
     <string name="connect_placeholder_token">API token</string>
     <string name="connect_placeholder_host">127.0.0.1</string>
+    <string name="connect_use_tls">HTTPS (TLS)</string>
     <string name="connect_placeholder_port">9119</string>
     <string name="action_connect">Connect</string>
 
