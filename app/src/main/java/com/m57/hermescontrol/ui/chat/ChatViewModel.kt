@@ -1232,14 +1232,86 @@ class ChatViewModel(
                     ?.times(1000)
                     ?.toLong()
                     ?: System.currentTimeMillis()
-            ChatMessage(
-                id = id,
-                role = role,
-                content = msg.content.orEmpty(),
-                timestamp = timestamp,
-                isStreaming = false,
-                reasoningText = msg.reasoningText.orEmpty().takeIf { role == MessageRole.ASSISTANT } ?: "",
-            )
+            when {
+                // Tool result row → tool chip. REST stores the tool's JSON output
+                // (e.g. {"output": "…"}); tool_name feeds the chip title + summary
+                // line (parity with the live WS tool.complete path).
+                role == MessageRole.TOOL -> {
+                    val toolName = msg.tool_name ?: parseToolCallName(msg.tool_calls)
+                    ChatMessage(
+                        id = id,
+                        role = MessageRole.TOOL,
+                        content = msg.content.orEmpty(),
+                        timestamp = timestamp,
+                        isStreaming = false,
+                        toolName = toolName,
+                        toolStatus = ToolStatus.COMPLETED,
+                    )
+                }
+
+                // Assistant row that only carries tool_calls (empty text) → render as a
+                // tool-call chip (name + args summary) instead of an empty bubble.
+                role == MessageRole.ASSISTANT && msg.content.isNullOrBlank() && msg.tool_calls != null -> {
+                    val call = firstToolCall(msg.tool_calls)
+                    ChatMessage(
+                        id = id,
+                        role = MessageRole.TOOL,
+                        content = call?.second ?: "{}",
+                        timestamp = timestamp,
+                        isStreaming = false,
+                        toolName = call?.first,
+                        toolStatus = ToolStatus.COMPLETED,
+                    )
+                }
+
+                else -> {
+                    val taskStatus =
+                        if (role == MessageRole.ASSISTANT) {
+                            TaskStatusParser.parse(msg.content.orEmpty())
+                        } else {
+                            null
+                        }
+                    ChatMessage(
+                        id = id,
+                        role = role,
+                        content =
+                            if (taskStatus != null) {
+                                TaskStatusParser.strip(msg.content.orEmpty())
+                            } else {
+                                msg.content.orEmpty()
+                            },
+                        timestamp = timestamp,
+                        isStreaming = false,
+                        reasoningText = msg.reasoningText.orEmpty().takeIf { role == MessageRole.ASSISTANT } ?: "",
+                        taskStatus = taskStatus,
+                    )
+                }
+            }
+        }
+
+    /** Pull the first tool-call's function name/arguments out of a REST tool_calls array. */
+    private fun firstToolCall(toolCalls: kotlinx.serialization.json.JsonElement?): Pair<String, String>? =
+        try {
+            val arr = toolCalls as? kotlinx.serialization.json.JsonArray ?: return null
+            val fn = (arr.firstOrNull() as? kotlinx.serialization.json.JsonObject)
+                ?.get("function") as? kotlinx.serialization.json.JsonObject
+            val name = fn?.get("name")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            val args = fn?.get("arguments")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            if (name != null) name to (args ?: "{}") else null
+        } catch (_: Exception) {
+            null
+        }
+
+    /** Fallback for old tool rows: tool name may ride inside the row's tool_calls field. */
+    private fun parseToolCallName(toolCalls: kotlinx.serialization.json.JsonElement?): String? =
+        try {
+            val arr = toolCalls as? kotlinx.serialization.json.JsonArray ?: return null
+            ((arr.firstOrNull() as? kotlinx.serialization.json.JsonObject)
+                ?.get("function") as? kotlinx.serialization.json.JsonObject)
+                ?.get("name")
+                ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        } catch (_: Exception) {
+            null
         }
 
     private fun serverMessageIndex(
