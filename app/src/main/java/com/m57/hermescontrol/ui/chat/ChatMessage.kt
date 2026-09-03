@@ -26,6 +26,8 @@ data class ChatMessage(
     val approvalInfo: ApprovalInfo? = null,
     /** Files attached to this message — shown inline in the bubble. */
     val attachments: List<Attachment>? = null,
+    /** Parsed trailing [HERMES_TASK_STATUS] block (assistant turns); stripped from content. */
+    val taskStatus: TaskStatus? = null,
 )
 
 enum class MessageRole {

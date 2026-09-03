@@ -338,6 +338,15 @@ private fun AssistantBubble(
     val scope = rememberCoroutineScope()
     var showCopyButton by remember { mutableStateOf(false) }
     val desktopMedia = remember(message.content) { DesktopMedia.parse(message.content) }
+    // Task-status block: strip from the visible body, render as a status card.
+    val taskStatus = remember(message.id) { message.taskStatus ?: TaskStatusParser.parse(message.content) }
+    val visibleContent = remember(message.content) {
+        if (message.taskStatus != null || message.content.contains("[HERMES_TASK_STATUS]")) {
+            TaskStatusParser.strip(message.content)
+        } else {
+            message.content
+        }
+    }
 
     // Auto-dismiss copy button after 4 seconds
     LaunchedEffect(showCopyButton) {
@@ -383,22 +392,25 @@ private fun AssistantBubble(
                 tonalElevation = 1.dp,
             ) {
                 Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    if (taskStatus != null) {
+                        TaskStatusCard(taskStatus, textColor)
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
                     if (desktopMedia?.isImage == true) {
                         AsyncImage(
                             model = desktopMedia.url(),
                             contentDescription = desktopMedia.fileName,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 120.dp, max = 420.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .testTag("desktop_media_image"),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp, max = 420.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .testTag("desktop_media_image"),
                             contentScale = ContentScale.Fit,
                         )
                     } else {
                         SelectionContainer {
                             RichText(
-                                text = message.content,
+                                text = visibleContent,
                                 textColor = textColor,
                                 searchQuery = searchQuery,
                                 isCurrentMatch = isCurrentMatch,
@@ -453,6 +465,48 @@ private fun AssistantBubble(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TaskStatusCard(
+    status: TaskStatus,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            TaskStatusRow("背景", status.background, textColor)
+            TaskStatusRow("进度", status.progress, textColor)
+            TaskStatusRow("下一步", status.next, textColor)
+        }
+    }
+}
+
+@Composable
+private fun TaskStatusRow(
+    label: String,
+    value: String,
+    textColor: Color,
+) {
+    if (value.isBlank()) return
+    Row {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = textColor.copy(alpha = 0.6f),
+            modifier = Modifier.width(44.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = textColor,
+        )
     }
 }
 

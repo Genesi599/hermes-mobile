@@ -209,15 +209,22 @@ object ChatWsEventReducer {
         event: WsEvent.MessageComplete,
     ): ReducerResult {
         val streaming = streamingState.streamingMessage
+        val rawContent = event.text ?: streaming?.content ?: ""
+        // Final text may carry a trailing [HERMES_TASK_STATUS] block — parse it
+        // into the card and strip it from the visible body (desktop parity).
+        val taskStatus = TaskStatusParser.parse(rawContent)
+        val finalContent = if (taskStatus != null) TaskStatusParser.strip(rawContent) else rawContent
         val msg =
             streaming?.copy(
-                content = event.text ?: streaming.content,
+                content = finalContent,
                 isStreaming = false,
                 reasoningText = streamingState.reasoningText,
+                taskStatus = taskStatus,
             ) ?: ChatMessage(
                 role = MessageRole.ASSISTANT,
-                content = event.text ?: "",
+                content = finalContent,
                 reasoningText = streamingState.reasoningText,
+                taskStatus = taskStatus,
             )
         val effects = mutableListOf<ReducerEffect>()
         val sid = state.currentSessionId
