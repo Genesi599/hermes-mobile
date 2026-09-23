@@ -251,9 +251,14 @@ private fun SidebarRoomRow(
     val statusColors = LocalHermesStatusColors.current
     val isRoomActive = room.sessionId != null && room.sessionId == activeId
     val agentsWithSessions = resolveAgentsWithConversations(room)
-    val orphanChildren = room.childSessions.filter { child ->
-        child.id != activeId || isRoomActive
-    }
+    // Desktop parity: the roster renders ONLY chips derived from the
+    // delivery wiring + participants (`agentsForSession` in
+    // agent-roster.tsx). Child sessions with no wiring are NOT extra chips
+    // — they're reachable via the wired chip's title-prefix fallback
+    // (`resolveAgentConversation` matches `X · Y` and `X · Y (n)`).
+    // The earlier "orphan chip" layer rendered the `X · Y (2..n)` dedupe
+    // siblings as extra blank boxes (label parse returned empty strings —
+    // 10 gray squares on 星阶 in the 2026-09-23 screenshot).
 
     Card(
         modifier =
@@ -308,7 +313,7 @@ private fun SidebarRoomRow(
             }
 
             // ── Chips cluster ───────────────────────────────────────────
-            if (agentsWithSessions.isNotEmpty() || orphanChildren.isNotEmpty()) {
+            if (agentsWithSessions.isNotEmpty()) {
                 FlowRow(
                     modifier = Modifier.fillMaxWidth().padding(top = spacing.xs),
                     horizontalArrangement = Arrangement.spacedBy(spacing.xs),
@@ -336,23 +341,6 @@ private fun SidebarRoomRow(
                                 onClick = { onAgentClick(agent) },
                             )
                         }
-
-                    // Orphan children — agents that have a session but
-                    // no delivery wiring yet (e.g. a one-off chat started
-                    // by the user before the cron job existed).
-                    orphanChildren.forEach { child ->
-                        val label = child.display_name ?: agentLabelFromTitle(child.title, room.title)
-                        AgentChip(
-                            label = label,
-                            // Orphan chips carry no avatar from wiring; fall
-                            // back to the label's first char instead of the
-                            // message preview (which yields noise like '#'/'[').
-                            avatar = label.takeIf { it.isNotBlank() }?.firstOrNull()?.toString(),
-                            isActive = child.id == activeId,
-                            onClick = { openSession(child.id, child.profile, child.title) },
-                            isOrphan = true,
-                        )
-                    }
                 }
             }
         }
@@ -367,11 +355,6 @@ private fun SidebarRoomRow(
  *
  * `isActive` is the highlighted state when this chip's child session
  * is currently the focused conversation.
- *
- * `isOrphan` is for child sessions whose agent has no delivery cron
- * wiring — the chip still navigates to the session, but the visual
- * distinguishes them so the user can tell "this exists, but no agent
- * delivers here".
  */
 @Composable
 private fun AgentChip(
@@ -379,7 +362,6 @@ private fun AgentChip(
     avatar: String?,
     isActive: Boolean,
     onClick: () -> Unit,
-    isOrphan: Boolean = false,
 ) {
     val spacing = LocalSpacing.current
     val statusColors = LocalHermesStatusColors.current
@@ -396,11 +378,7 @@ private fun AgentChip(
     )
 
     val borderColor =
-            when {
-                isActive -> statusColors.success
-                isOrphan -> MaterialTheme.colorScheme.outlineVariant
-                else -> MaterialTheme.colorScheme.outline
-            }
+        if (isActive) statusColors.success else MaterialTheme.colorScheme.outline
 
     AssistChip(
         onClick = onClick,
@@ -426,22 +404,11 @@ private fun AgentChip(
             AssistChipDefaults.assistChipColors(
                 containerColor =
                     if (isActive) statusColors.success.copy(alpha = 0.16f)
-                    else if (isOrphan) MaterialTheme.colorScheme.surfaceVariant
                     else MaterialTheme.colorScheme.surface,
             ),
         border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = borderColor),
     )
 
-}
-
-private fun agentLabelFromTitle(
-    title: String?,
-    project: String,
-): String {
-    if (title.isNullOrBlank()) return ""
-    val marker = "$project · "
-    val stripped = if (title.startsWith(marker)) title.substring(marker.length) else title
-    return stripped.substringBefore(" (").substringBeforeLast(" · ", "")
 }
 
 /** Resolve the agent's conversation under a room by name. */

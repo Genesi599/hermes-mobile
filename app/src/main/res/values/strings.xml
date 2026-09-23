@@ -71,7 +71,7 @@
     <string name="screen_kanban">Kanban</string>
     <string name="screen_achievements">Achievements</string>
     <string name="screen_api_balance">API 余额</string>
-    <string name="screen_history">History</string>
+    <string name="screen_history">会话</string>
 
     <!-- Notifications -->
     <string name="notif_title">Hermes</string>

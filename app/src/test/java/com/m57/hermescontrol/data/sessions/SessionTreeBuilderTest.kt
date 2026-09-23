@@ -240,4 +240,18 @@ class SessionTreeBuilderTest {
 
         assertEquals(listOf("新项目", "老项目"), rooms.map { it.title })
     }
+
+    @Test
+    fun testAgentNameFromTitle_stripsDedupeCounter() {
+        // "(n)" dedupe-counter variants must yield the same agent name as the
+        // base title — this is what keeps one agent with sibling sessions
+        // (流程搭档, 流程搭档 (2)…) to a single orphan chip.
+        assertEquals("流程搭档", agentNameFromTitle("星阶 · 流程搭档", "星阶"))
+        assertEquals("流程搭档", agentNameFromTitle("星阶 · 流程搭档 (6)", "星阶"))
+        assertEquals("管家", agentNameFromTitle("星阶 · 管家 (2)", "星阶"))
+        assertEquals("Hermes", agentNameFromTitle("星阶 · Hermes", "星阶"))
+        // Non-agent shapes return null instead of a blank label.
+        assertNull(agentNameFromTitle("星阶", "星阶"))
+        assertNull(agentNameFromTitle(null, "星阶"))
+    }
 }
