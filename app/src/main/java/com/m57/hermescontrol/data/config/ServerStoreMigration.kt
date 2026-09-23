@@ -57,7 +57,9 @@ class ServerStoreMigration(
         val bottomNavItemsRaw = prefs.getString("bottom_nav_items", null)
         val bottomNavItems =
             bottomNavItemsRaw?.split(",")?.filter { it.isNotBlank() }
-                ?: listOf("ChatScreen", "SkillsScreen", "CronJobsScreen", "SystemScreen", "SettingsScreen")
+                // Null legacy preference → keep currentData's (new 3-tab)
+                // default; only migrate when the user actually had a value.
+                ?: currentData.bottomNavItems
 
         val connectionProfilesRaw = prefs.getString("connection_profiles", null)
         val connectionProfiles =

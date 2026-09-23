@@ -18,11 +18,17 @@ fun ServerStoreState.selfHealed(): ServerStoreState {
     val newSelected = if (selectedProfileId != null && !hasActive) null else selectedProfileId
 
     val validItems = bottomNavItems.filter { it.isNotBlank() }
+    // Migration: the shipped default used to be the 5-tab layout
+    // (Chat/Skills/Cron/System/Settings). Users who never customized it get
+    // migrated to the 3-tab layout (History/Chat/Settings) so the sidebar
+    // (session rooms) becomes the primary surface; custom selections survive.
+    val legacyDefault =
+        listOf("ChatScreen", "SkillsScreen", "CronJobsScreen", "SystemScreen", "SettingsScreen")
     val finalBottomNavItems =
-        if (validItems.isEmpty()) {
-            listOf("ChatScreen", "SkillsScreen", "CronJobsScreen", "SystemScreen", "SettingsScreen")
-        } else {
-            validItems
+        when {
+            validItems.isEmpty() || validItems == legacyDefault ->
+                listOf("HistoryScreen", "ChatScreen", "SettingsScreen")
+            else -> validItems
         }
 
     return copy(

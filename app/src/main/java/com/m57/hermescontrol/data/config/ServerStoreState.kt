@@ -16,7 +16,7 @@ data class ServerStoreState(
     val themePreset: ThemePreset = ThemePreset.DEFAULT,
     val bottomNavDisplayMode: BottomNavDisplayMode = BottomNavDisplayMode.ICON_AND_TEXT,
     val bottomNavItems: List<String> =
-        listOf("ChatScreen", "SkillsScreen", "CronJobsScreen", "SystemScreen", "SettingsScreen"),
+        listOf("HistoryScreen", "ChatScreen", "SettingsScreen"),
     val connectionProfiles: List<ConnectionProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val pinnedModels: List<PinnedModel> = emptyList(),

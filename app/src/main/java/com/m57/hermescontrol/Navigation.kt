@@ -80,7 +80,7 @@ private fun appEntryProvider(
     entry<AuthLoginScreen> {
         AuthLoginScreenContent(
             onConnected = {
-                NavigationController.resetTo(ChatScreen)
+                NavigationController.resetTo(HistoryScreen)
             },
             onBack = {
                 NavigationController.goBack()
@@ -91,7 +91,7 @@ private fun appEntryProvider(
     entry<PairingCodeEntryScreen> {
         PairingCodeEntryScreenContent(
             onConnected = {
-                NavigationController.resetTo(ChatScreen)
+                NavigationController.resetTo(HistoryScreen)
             },
             onBack = {
                 NavigationController.goBack()
@@ -110,7 +110,9 @@ private fun appEntryProvider(
 fun MainNavigation(sessionId: String? = null) {
     val token by AuthManager.tokenFlow.collectAsState()
     val hasToken = !token.isNullOrBlank()
-    val startScreen: NavKey = if (hasToken) ChatScreen else LandingScreen
+    // History (session rooms + agent chips) is the primary surface — mirrors
+    // the desktop sidebar; the chat opens from a room/chip selection.
+    val startScreen: NavKey = if (hasToken) HistoryScreen else LandingScreen
 
     val backStack = remember(startScreen) { NavBackStack(startScreen) }
     NavigationController.backStack = backStack
