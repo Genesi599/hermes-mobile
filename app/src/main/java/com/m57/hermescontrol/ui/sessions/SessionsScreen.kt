@@ -204,12 +204,13 @@ private fun SidebarList(
                     val childSession = resolveAgentConversation(room, agent)
                     if (childSession != null) {
                         openSession(childSession.id, childSession.profile ?: agent.profile, childSession.title)
-                    } else {
-                        // No child session yet — chip is "wired but no
-                        // agent has spoken"; open the room so the user
-                        // sees the wiring but no agent row lights up.
-                        room.session?.let { openSession(it.id, it.profile, it.title) }
                     }
+                    // No conversation yet: the chip is "wired but this agent has
+                    // never spoken". Deliberately do NOTHING — falling back to
+                    // the room's bound session would open the group chat's stale
+                    // transcript under an agent's name, re-mixing the two
+                    // surfaces. The room row above is the way into the group
+                    // chat; an agent chip only ever opens that agent's own chat.
                 },
             )
         }
@@ -420,15 +421,20 @@ private fun AgentChip(
 
 }
 
-/** Resolve the agent's conversation under a room by name. */
+/** Resolve the agent's conversation under a room by name.
+ *
+ *  Every chip — INCLUDING Hermes — resolves to that agent's OWN private
+ *  conversation (`<room> · <agent>`). The room row above the chip cluster is
+ *  the only entry point to the group chat (channel). Historically the Hermes
+ *  chip returned `room.session` (the room's bound session), which meant
+ *  tapping "Hermes" showed a stale near-dead transcript instead of Hermes's
+ *  live private chat — and blurred the room/agent boundary the user relies on
+ *  (2026-09-23: "hermesagent 点不进去，应该和群聊分开呀").
+ */
 private fun resolveAgentConversation(
     room: SidebarRoom,
     agent: SessionAgent,
 ): ProfileSessionInfo? {
-    // Hermes chip — `X · Hermes` is the room's own session (the maintainer
-    // speaks IN the room, so its own conversation is the room session).
-    if (agent.label == "Hermes") return room.session
-
     // First try the conventional title.
     val want = agentTitleFor(room.title, agent.label)
     val exact = room.childSessions.firstOrNull { it.title == want }
