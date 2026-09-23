@@ -67,6 +67,19 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Side-install helper: `.thinking` lets a debug build coexist with
+            // an installed release. It also makes the debug APK a DIFFERENT
+            // package, so it can never upgrade that release — the system
+            // rejects it with "已安装更高版本" / SIGNATURE mismatch. Pass
+            // -PsideBySide=false to build a debug APK that shares the release
+            // package id and can therefore upgrade it.
+            val sideBySide = (project.findProperty("sideBySide") as? String)?.toBoolean() ?: true
+            if (sideBySide) {
+                applicationIdSuffix = ".thinking"
+                versionNameSuffix = "-thinking"
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
