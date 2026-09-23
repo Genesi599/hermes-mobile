@@ -1554,8 +1554,23 @@ private fun ChatLifecycleEffects(
     var lastSessionId by remember { mutableStateOf<String?>(null) }
     val pendingSessionId = NavigationController.pendingSessionId
     val pendingSessionProfile = NavigationController.pendingSessionProfile
-    LaunchedEffect(sessionId, pendingSessionId, connectionStatus) {
+    val pendingRoomId = NavigationController.pendingRoomId
+    // A project ROOM (channel) target wins over any session id — the room
+    // owns its message store, and the WS-gated session path doesn't apply.
+    LaunchedEffect(pendingRoomId) {
+        val roomId = pendingRoomId ?: return@LaunchedEffect
+        viewModel.openRoom(roomId, NavigationController.pendingRoomTitle ?: "")
+        NavigationController.pendingRoomId = null
+        NavigationController.pendingRoomTitle = null
+    }
+    LaunchedEffect(sessionId, pendingSessionId, connectionStatus, pendingRoomId) {
         if (connectionStatus != ConnectionStatus.CONNECTED) return@LaunchedEffect
+        if (pendingRoomId != null) return@LaunchedEffect
+        // A room is open and no explicit session target was tapped — the
+        // nav-arg sessionId / stale re-run of this effect must not steal
+        // the room view back to the previously open session.
+        val roomOpen = viewModel.uiState.value.roomId != null
+        if (roomOpen && pendingSessionId == null) return@LaunchedEffect
         val target = if (!sessionId.isNullOrBlank()) sessionId else pendingSessionId
         if (!target.isNullOrBlank()) {
             viewModel.switchSession(target, NavigationController.pendingSessionProfile, NavigationController.pendingSessionTitle)

@@ -188,8 +188,17 @@ private fun SidebarList(
                 room = room,
                 activeId = activeId,
                 onRoomClick = {
-                    val sid = room.session?.id ?: room.sessionId
-                    if (sid != null) openSession(sid)
+                    // The room is the channel, not its bound session —
+                    // agent replies land in the channel's own store, so
+                    // opening the session transcript would show a stale
+                    // thread (2026-09-23 "messages not synced" report).
+                    val channel = room.channel
+                    if (channel != null) {
+                        openRoom(channel.id, room.title)
+                    } else {
+                        val sid = room.session?.id ?: room.sessionId
+                        if (sid != null) openSession(sid)
+                    }
                 },
                 onAgentClick = { agent ->
                     val childSession = resolveAgentConversation(room, agent)
@@ -458,5 +467,15 @@ private fun openSession(sessionId: String, profile: String? = null, titleHint: S
     NavigationController.pendingSessionId = sessionId
     NavigationController.pendingSessionProfile = profile
     NavigationController.pendingSessionTitle = titleHint
+    NavigationController.navigateTo(ChatScreen)
+}
+
+/** Open a project room (channel) — the group chat view, not a session. */
+private fun openRoom(channelId: String, title: String) {
+    NavigationController.pendingSessionId = null
+    NavigationController.pendingSessionProfile = null
+    NavigationController.pendingSessionTitle = null
+    NavigationController.pendingRoomId = channelId
+    NavigationController.pendingRoomTitle = title
     NavigationController.navigateTo(ChatScreen)
 }

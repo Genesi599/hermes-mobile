@@ -10,6 +10,9 @@ import com.m57.hermescontrol.data.model.ApiBalanceResponse
 import com.m57.hermescontrol.data.model.AuxiliaryModelsResponse
 import com.m57.hermescontrol.data.model.BulkDeleteRequest
 import com.m57.hermescontrol.data.model.ChannelListResponse
+import com.m57.hermescontrol.data.model.ChannelMessage
+import com.m57.hermescontrol.data.model.ChannelMessagesResponse
+import com.m57.hermescontrol.data.model.ChannelPostRequest
 import com.m57.hermescontrol.data.model.CheckpointsResponse
 import com.m57.hermescontrol.data.model.CloneProfileRequest
 import com.m57.hermescontrol.data.model.ConfigSchemaResponse
@@ -169,6 +172,28 @@ interface HermesApiService {
         @Query("project") project: String? = null,
         @Query("profile") profile: String? = null,
     ): Response<ChannelListResponse>
+
+    /**
+     * The room's own message store — what the desktop `ChannelView` polls
+     * every 5s. A room is NOT its bound session's transcript: agent replies
+     * arrive via the delivery path into the channel's store, so reading the
+     * session would show a stale thread (the 2026-09-23 "messages not
+     * synced" report — the room's session row was last touched at 07:55
+     * while the channel carried the whole day's conversation).
+     */
+    @GET("api/channels/{id}/messages")
+    suspend fun getChannelMessages(
+        @Path("id") channelId: String,
+        @Query("limit") limit: Int? = null,
+        @Query("order") order: String? = null,
+    ): Response<ChannelMessagesResponse>
+
+    /** Post the human's line into the room — an INSERT that triggers the router. */
+    @POST("api/channels/{id}/messages")
+    suspend fun postChannelMessage(
+        @Path("id") channelId: String,
+        @Body body: ChannelPostRequest,
+    ): Response<Unit>
 
     @GET("api/sessions/{id}/messages")
     suspend fun getSessionMessages(

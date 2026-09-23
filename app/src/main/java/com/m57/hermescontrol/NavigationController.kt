@@ -42,6 +42,18 @@ object NavigationController {
      */
     var lastOpenedSessionId: String? = null
 
+    /**
+     * Channel id when the navigation target is a project ROOM (the group
+     * chat), not an agent conversation. ChatScreen consumes this and calls
+     * [com.m57.hermescontrol.ui.chat.ChatViewModel.openRoom] — the room owns
+     * its message store on the backend, so nothing about the session path
+     * applies.
+     */
+    var pendingRoomId: String? = null
+
+    /** Display title for [pendingRoomId] (the project name). */
+    var pendingRoomTitle: String? = null
+
     // Bottom-nav primary screens — dynamic, updated by Navigation.kt via
     // updatePrimaryScreens() when the user customises the bottom nav bar.
     // Default matches the default 5 bottom-nav items.

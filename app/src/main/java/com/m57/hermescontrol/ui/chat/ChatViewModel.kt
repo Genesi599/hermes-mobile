@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.local.HermesDatabase
 import com.m57.hermescontrol.data.model.Attachment
+import com.m57.hermescontrol.data.model.ChannelMessage
+import com.m57.hermescontrol.data.model.ChannelPostRequest
 import com.m57.hermescontrol.data.model.ModelProvider
 import com.m57.hermescontrol.data.model.SessionMessage
 import com.m57.hermescontrol.data.model.flattenSessionTree
@@ -26,6 +28,7 @@ import com.m57.hermescontrol.data.ws.toJsonElement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +52,13 @@ private const val MESSAGE_PAGE_SIZE = 150
 
 /** Phone keeps only the newest N messages of a desktop transcript (user preference). */
 private const val MOBILE_TAIL_MESSAGE_COUNT = 20
+
+/** Room (channel) poll cadence — matches the desktop ChannelView's 5s poll. */
+private const val ROOM_POLL_MS = 5_000L
+
+/** How many room lines to fetch per poll (a room only gains lines; the
+ *  desktop fetches 200). */
+private const val ROOM_MESSAGE_LIMIT = 200
 
 internal fun sessionModelCommand(
     provider: String,
@@ -105,6 +115,15 @@ data class ChatUiState(
     val isLoadingSessionModels: Boolean = false,
     val sessionModelProviders: List<ModelProvider> = emptyList(),
     val sessionModelError: String? = null,
+    /**
+     * Room (channel) mode — the current view is a project room, not an agent
+     * conversation. The room owns its message store on the backend
+     * (`GET/POST /api/channels/{id}/messages`, exactly what the desktop
+     * `ChannelView` renders): agent replies arrive through the delivery
+     * path, and only the human's lines are posted by this client. When set,
+     * message loading/sending bypasses the session transcript entirely.
+     */
+    val roomId: String? = null,
 ) {
     /** Convenience — derived from [connectionStatus]. */
     val isConnected: Boolean get() = connectionStatus == ConnectionStatus.CONNECTED
@@ -157,13 +176,99 @@ class ChatViewModel(
 
     /** Runtime TUI session returned by session.resume; Desktop storage keeps the original ID. */
     private var runtimeSessionId: String? = null
-
-    /**
-     * Owning profile of the current session, when known (set from the
-     * sidebar's all-profiles row before switchSession). Cross-profile
-     * sessions 404 without `?profile=` on the messages endpoint.
-     */
     private var currentSessionProfile: String? = null
+
+    // ── Room (channel) mode ────────────────────────────────────────────
+    // Polls the channel's own message store (same contract as the desktop
+    // ChannelView's 5s poll) while a room is open.
+    private var roomPollJob: Job? = null
+
+    /** Open a project room by its channel id (the desktop's room semantics). */
+    fun openRoom(channelId: String, title: String) {
+        if (_uiState.value.roomId == channelId && _uiState.value.currentSessionId == null) return
+        roomPollJob?.cancel()
+        runtimeSessionId = null
+        streamingController.resetStreaming()
+        _uiState.update {
+            it.copy(
+                roomId = channelId,
+                currentSessionId = null,
+                messages = emptyList(),
+                chatTitle = title,
+                isLoading = true,
+                isLoadingOlder = false,
+                hasOlderMessages = false,
+                isAgentTyping = false,
+                showSessionPicker = false,
+            )
+        }
+        _streamingState.update { StreamingState() }
+        loadRoomMessages(channelId)
+        roomPollJob = viewModelScope.launch {
+            while (isActive) {
+                delay(ROOM_POLL_MS)
+                if (_uiState.value.roomId == channelId) loadRoomMessages(channelId)
+            }
+        }
+    }
+
+    private fun loadRoomMessages(channelId: String) {
+        viewModelScope.launch {
+            val result =
+                withContext(Dispatchers.IO) {
+                    safeApiCall { ApiClient.hermesApi.getChannelMessages(channelId, limit = ROOM_MESSAGE_LIMIT) }
+                }
+            when (result) {
+                is NetworkResult.Success -> {
+                    // API returns oldest→newest; map and swap only if still
+                    // on this room (poll racing a navigation).
+                    val mapped = result.data.messages.map { it.toChatMessage() }
+                    _uiState.update { state ->
+                        if (state.roomId == channelId) {
+                            state.copy(
+                                messages = mergeRoomMessages(state.messages, mapped),
+                                isLoading = false,
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                }
+                is NetworkResult.Failure -> {
+                    _uiState.update { state ->
+                        if (state.roomId == channelId) state.copy(isLoading = false, errorMessage = result.error.message) else state
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    /** Post the human's line into the room (INSERT + router dispatch). */
+    private fun sendRoomMessage(text: String) {
+        val channelId = _uiState.value.roomId ?: return
+        val userMessage = ChatMessage(role = MessageRole.USER, content = text)
+        _uiState.update { it.copy(messages = it.messages + userMessage) }
+        viewModelScope.launch {
+            val result =
+                withContext(Dispatchers.IO) {
+                    safeApiCall {
+                        ApiClient.hermesApi.postChannelMessage(
+                            channelId,
+                            ChannelPostRequest(content = text),
+                        )
+                    }
+                }
+            when (result) {
+                is NetworkResult.Failure ->
+                    _uiState.update { state ->
+                        if (state.roomId == channelId) state.copy(errorMessage = "发送失败: ${result.error.message}") else state
+                    }
+                else -> Unit
+            }
+        }
+    }
+
     private var isSyncingMessages = false
     val streamingState: StateFlow<StreamingState> = _streamingState.asStateFlow()
 
@@ -287,6 +392,9 @@ class ChatViewModel(
         _uiState.update { it.copy(isLoading = false) }
         addSystemMessage("Connected to Hermes")
         fetchCommandCatalog()
+        // Room (channel) mode: the WS-gated session path doesn't apply —
+        // selecting "latest session" here would hijack the open room.
+        if (_uiState.value.roomId != null) return
         val currentId = _uiState.value.currentSessionId
         if (currentId != null) {
             loadSessions()
@@ -615,6 +723,14 @@ class ChatViewModel(
      * 5. Send `prompt.submit` with text + @file: refs — images auto-picked up by backend
      */
     fun sendMessage(text: String) {
+        // Room (channel) mode: the room is not a session — post the line
+        // into the channel store and let the router dispatch it. No
+        // prompt.submit, no runtime session.
+        if (_uiState.value.roomId != null) {
+            val trimmed = text.trim()
+            if (trimmed.isNotEmpty()) sendRoomMessage(trimmed)
+            return
+        }
         if (text.isBlank() && _uiState.value.pendingAttachments.isEmpty()) return
         val storageSessionId = _uiState.value.currentSessionId ?: return
         val agentSessionId = runtimeSessionId ?: return
@@ -983,7 +1099,10 @@ class ChatViewModel(
                             chatTitle = newTitle ?: state.chatTitle,
                         )
                     }
-                    if (selectLatestIfNone && _uiState.value.currentSessionId == null) {
+                    // Room (channel) mode must not be hijacked: an in-flight
+                    // "select latest" from cold start landing after the user
+                    // opened a room would steal the room view.
+                    if (selectLatestIfNone && _uiState.value.currentSessionId == null && _uiState.value.roomId == null) {
                         sessions.firstOrNull()?.let { switchSession(it.id) }
                             ?: createNewSession(setLoading = false)
                     }
@@ -1008,6 +1127,8 @@ class ChatViewModel(
     }
 
     fun refreshCurrentSession() {
+        // Room (channel) mode refreshes via its own poll loop.
+        if (_uiState.value.roomId != null) return
         val sessionId = _uiState.value.currentSessionId ?: return
         loadSessionMessages(sessionId)
     }
@@ -1033,6 +1154,12 @@ class ChatViewModel(
 
     fun switchSession(sessionId: String, profile: String? = null, titleHint: String? = null) {
         if (sessionId == _uiState.value.currentSessionId) return
+        // Leaving room mode — stop the poll and clear the room state.
+        roomPollJob?.cancel()
+        roomPollJob = null
+        if (_uiState.value.roomId != null) {
+            _uiState.update { it.copy(roomId = null) }
+        }
         currentSessionProfile = profile?.takeIf { it.isNotBlank() }
 
         // Reset streaming and pagination state before resuming the Desktop session.
@@ -1718,10 +1845,50 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        roomPollJob?.cancel()
         // PERF-16: Don't disconnect the global HermesWsClient singleton when
         // leaving the Chat screen — it's used by background notification reply.
     }
 
     companion object {
     }
+}
+
+/**
+ * Map a channel (room) line to the chat list model. The room's author is
+ * explicit (`author_label`: 杨航 / Hermes / …), so it is prefixed onto the
+ * bubble content — the room is a multi-party view, and without the label
+ * every agent's line looks like the same faceless assistant.
+ */
+private fun ChannelMessage.toChatMessage(): ChatMessage {
+    val role =
+        when (author_kind ?: role) {
+            "human" -> MessageRole.USER
+            "system" -> MessageRole.SYSTEM
+            else -> MessageRole.ASSISTANT
+        }
+    val label = author_label?.takeIf { it.isNotBlank() }
+    val text =
+        if (role == MessageRole.ASSISTANT && label != null) {
+            "$label：$content"
+        } else {
+            content
+        }
+    return ChatMessage(
+        id = "room-$channel_id-$id",
+        role = role,
+        content = text,
+        timestamp = (timestamp * 1000).toLong(),
+        isStreaming = false,
+    )
+}
+
+/**
+ * Merge a poll's room lines into the current list — a room only GAINS
+ * lines, so union-by-stable-id keeps unchanged rows' identity (cheap
+ * recomposition, same contract as the desktop's `mergeMessages`).
+ */
+internal fun mergeRoomMessages(current: List<ChatMessage>, fetched: List<ChatMessage>): List<ChatMessage> {
+    val byId = current.associateBy { it.id }
+    return fetched.map { fetchedMsg -> byId[fetchedMsg.id] ?: fetchedMsg }
 }
