@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,14 +84,15 @@ import com.m57.hermescontrol.ui.common.listContentPadding
  *    a chip for the same agent yet.
  *
  * Highlight (the "selected" room/chip) follows
- * `NavigationController.pendingSessionId` — same single source of truth
- * the desktop sidebar uses (`$focusedStoredSessionId`).
+ * `NavigationController.lastOpenedSessionId` — survives the chat screen
+ * clearing `pendingSessionId` (same single source of truth the desktop
+ * sidebar uses, `$focusedStoredSessionId`).
  */
 @Composable
 fun SessionsScreen(onOpenDrawer: () -> Unit) {
     val viewModel: SessionsViewModel = viewModel()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val activeId = NavigationController.pendingSessionId
+    val activeId = NavigationController.pendingSessionId ?: NavigationController.lastOpenedSessionId
 
     LaunchedEffect(Unit) {
         viewModel.loadSessions()
@@ -192,12 +194,12 @@ private fun SidebarList(
                 onAgentClick = { agent ->
                     val childSession = resolveAgentConversation(room, agent)
                     if (childSession != null) {
-                        openSession(childSession.id)
+                        openSession(childSession.id, childSession.profile ?: agent.profile, childSession.title)
                     } else {
                         // No child session yet — chip is "wired but no
                         // agent has spoken"; open the room so the user
                         // sees the wiring but no agent row lights up.
-                        room.session?.id?.let { openSession(it) }
+                        room.session?.let { openSession(it.id, it.profile, it.title) }
                     }
                 },
             )
@@ -254,7 +256,10 @@ private fun SidebarRoomRow(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth().testTag("sidebar_room_${room.title}"),
+        modifier =
+            Modifier.fillMaxWidth()
+                .testTag("sidebar_room_${room.title}")
+                .clickable(onClick = onRoomClick),
         colors =
             CardDefaults.cardColors(
                 containerColor =
@@ -339,9 +344,12 @@ private fun SidebarRoomRow(
                         val label = child.display_name ?: agentLabelFromTitle(child.title, room.title)
                         AgentChip(
                             label = label,
-                            avatar = child.preview?.takeIf { it.isNotBlank() }?.firstOrNull()?.toString(),
+                            // Orphan chips carry no avatar from wiring; fall
+                            // back to the label's first char instead of the
+                            // message preview (which yields noise like '#'/'[').
+                            avatar = label.takeIf { it.isNotBlank() }?.firstOrNull()?.toString(),
                             isActive = child.id == activeId,
-                            onClick = { openSession(child.id) },
+                            onClick = { openSession(child.id, child.profile, child.title) },
                             isOrphan = true,
                         )
                     }
@@ -479,7 +487,9 @@ private fun resolveAgentsWithConversations(room: SidebarRoom): List<SessionAgent
     return agents
 }
 
-private fun openSession(sessionId: String) {
+private fun openSession(sessionId: String, profile: String? = null, titleHint: String? = null) {
     NavigationController.pendingSessionId = sessionId
+    NavigationController.pendingSessionProfile = profile
+    NavigationController.pendingSessionTitle = titleHint
     NavigationController.navigateTo(ChatScreen)
 }

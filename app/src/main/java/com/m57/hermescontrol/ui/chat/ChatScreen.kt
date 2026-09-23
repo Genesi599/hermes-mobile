@@ -1553,13 +1553,17 @@ private fun ChatLifecycleEffects(
     // Switch to session from notification/history
     var lastSessionId by remember { mutableStateOf<String?>(null) }
     val pendingSessionId = NavigationController.pendingSessionId
+    val pendingSessionProfile = NavigationController.pendingSessionProfile
     LaunchedEffect(sessionId, pendingSessionId, connectionStatus) {
         if (connectionStatus != ConnectionStatus.CONNECTED) return@LaunchedEffect
         val target = if (!sessionId.isNullOrBlank()) sessionId else pendingSessionId
         if (!target.isNullOrBlank()) {
-            viewModel.switchSession(target)
+            viewModel.switchSession(target, NavigationController.pendingSessionProfile, NavigationController.pendingSessionTitle)
+            NavigationController.lastOpenedSessionId = target
             if (target == pendingSessionId) {
                 NavigationController.pendingSessionId = null
+                NavigationController.pendingSessionProfile = null
+                NavigationController.pendingSessionTitle = null
             }
         }
     }

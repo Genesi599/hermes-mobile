@@ -18,6 +18,30 @@ object NavigationController {
     var backStack: NavBackStack<NavKey>? = null
     var pendingSessionId: String? = null
 
+    /**
+     * Owning profile of [pendingSessionId] when the navigation came from the
+     * all-profiles sidebar (agent-roster chip). Consumed by ChatScreen's
+     * LaunchedEffect together with the session id — cross-profile sessions
+     * 404 on the messages endpoint without `?profile=`.
+     */
+    var pendingSessionProfile: String? = null
+
+    /**
+     * Display title hint for [pendingSessionId] (from the sidebar's
+     * all-profiles row). ChatViewModel's session list is single-profile
+     * (default), so cross-profile titles can't be resolved there — the
+     * hint keeps the chat header correct until a better source exists.
+     */
+    var pendingSessionTitle: String? = null
+
+    /**
+     * Last session the user actually opened, kept after the chat consumes
+     * [pendingSessionId]. The sidebar reads this so the "selected" room/chip
+     * highlight survives the chat screen clearing the pending id (same role
+     * as the desktop's `$focusedStoredSessionId`).
+     */
+    var lastOpenedSessionId: String? = null
+
     // Bottom-nav primary screens — dynamic, updated by Navigation.kt via
     // updatePrimaryScreens() when the user customises the bottom nav bar.
     // Default matches the default 5 bottom-nav items.

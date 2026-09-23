@@ -157,6 +157,13 @@ class ChatViewModel(
 
     /** Runtime TUI session returned by session.resume; Desktop storage keeps the original ID. */
     private var runtimeSessionId: String? = null
+
+    /**
+     * Owning profile of the current session, when known (set from the
+     * sidebar's all-profiles row before switchSession). Cross-profile
+     * sessions 404 without `?profile=` on the messages endpoint.
+     */
+    private var currentSessionProfile: String? = null
     private var isSyncingMessages = false
     val streamingState: StateFlow<StreamingState> = _streamingState.asStateFlow()
 
@@ -1024,14 +1031,17 @@ class ChatViewModel(
             null
         }
 
-    fun switchSession(sessionId: String) {
+    fun switchSession(sessionId: String, profile: String? = null, titleHint: String? = null) {
         if (sessionId == _uiState.value.currentSessionId) return
+        currentSessionProfile = profile?.takeIf { it.isNotBlank() }
 
         // Reset streaming and pagination state before resuming the Desktop session.
         runtimeSessionId = null
         streamingController.resetStreaming()
         _uiState.update {
-            val title = it.sessions.find { s -> s.id == sessionId }?.title ?: "Hermes"
+            // Cross-profile sessions aren't in the single-profile session
+            // list — prefer the sidebar's title hint over the "Hermes" fallback.
+            val title = it.sessions.find { s -> s.id == sessionId }?.title ?: titleHint ?: "Hermes"
             it.copy(
                 isLoading = true,
                 isLoadingOlder = false,
@@ -1076,7 +1086,7 @@ class ChatViewModel(
             // Load the newest page directly (order=latest) — one small request
             // regardless of how long the desktop transcript grew while the
             // phone was away. No message-count probe needed.
-            val result = fetchMessagePage(sessionId, offset = 0, limit = MOBILE_TAIL_MESSAGE_COUNT, order = "latest")
+            val result = fetchMessagePage(sessionId, offset = 0, limit = MOBILE_TAIL_MESSAGE_COUNT, order = "latest", profile = currentSessionProfile)
             when (result) {
                 is NetworkResult.Success -> {
                     val chatMessages = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset = 0, anchorLatest = true)
@@ -1121,7 +1131,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val currentCount = state.messages.count { serverMessageIndex(it.id, sessionId) != null }
             val limit = minOf(MESSAGE_PAGE_SIZE, currentCount + MESSAGE_PAGE_SIZE)
-            val result = fetchMessagePage(sessionId, offset = 0, limit = limit, order = "latest")
+            val result = fetchMessagePage(sessionId, offset = 0, limit = limit, order = "latest", profile = currentSessionProfile)
             when (result) {
                 is NetworkResult.Success -> {
                     val page = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset = 0, anchorLatest = true)
@@ -1158,7 +1168,7 @@ class ChatViewModel(
         isSyncingMessages = true
         viewModelScope.launch {
             try {
-                when (val result = fetchMessagePage(sessionId, offset = 0, limit = nextLimit, order = "latest")) {
+                when (val result = fetchMessagePage(sessionId, offset = 0, limit = nextLimit, order = "latest", profile = currentSessionProfile)) {
                     is NetworkResult.Success -> {
                         val incoming = mapServerMessages(sessionId, result.data.messages.orEmpty(), offset = 0, anchorLatest = true)
                         if (incoming.isEmpty()) return@launch
@@ -1197,8 +1207,9 @@ class ChatViewModel(
         offset: Int,
         limit: Int,
         order: String? = null,
+        profile: String? = null,
     ) = withContext(Dispatchers.IO) {
-        safeApiCall { ApiClient.hermesApi.getSessionMessages(sessionId, limit = limit, offset = offset, order = order) }
+        safeApiCall { ApiClient.hermesApi.getSessionMessages(sessionId, limit = limit, offset = offset, order = order, profile = profile) }
     }
 
     private fun mapServerMessages(

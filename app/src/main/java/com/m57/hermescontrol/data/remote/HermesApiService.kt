@@ -181,6 +181,11 @@ interface HermesApiService {
         // chronological order — lets the phone load only the tail of a long
         // desktop transcript without knowing the total message count first.
         @Query("order") order: String? = null,
+        // Owning profile for cross-profile sessions (the sidebar's
+        // all-profiles list tags each row). Without this the backend opens
+        // the implicit default profile's DB and 404s agent sessions that
+        // live in a named profile (e.g. 胸腺项目 · 单细胞师 @ scrna).
+        @Query("profile") profile: String? = null,
     ): Response<SessionMessagesResponse>
 
     @GET("api/sessions/stats")

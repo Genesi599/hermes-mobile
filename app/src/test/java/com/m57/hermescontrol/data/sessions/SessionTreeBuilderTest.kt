@@ -43,7 +43,7 @@ class SessionTreeBuilderTest {
         project: String,
         sessionId: String? = null,
         participants: List<String> = emptyList(),
-        updatedAt: Long = 0,
+        updatedAt: Double = 0.0,
     ): Channel =
         Channel(
             id = "chan-$project",
@@ -233,8 +233,8 @@ class SessionTreeBuilderTest {
             )
         val channels =
             listOf(
-                channel("老项目", sessionId = "s-old", updatedAt = 100),
-                channel("新项目", sessionId = "s-new", updatedAt = 200),
+                channel("老项目", sessionId = "s-old", updatedAt = 100.0),
+                channel("新项目", sessionId = "s-new", updatedAt = 200.0),
             )
         val rooms = buildSidebarTree(sessions, channels, emptyList())
 
