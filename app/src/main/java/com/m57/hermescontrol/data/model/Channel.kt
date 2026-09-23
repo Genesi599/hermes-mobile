@@ -29,8 +29,12 @@ data class Channel(
     val id: String,
     val project: String,
     val title: String,
-    val created_at: Long = 0,
-    val updated_at: Long = 0,
+    // The backend emits epoch floats (`1789614562.539754`), not integer
+    // seconds — a `Long` declaration makes kotlinx.serialization throw on
+    // decode, which silently zeroed the whole channel list (the sidebar then
+    // rendered "No project rooms yet" despite a 200 response).
+    val created_at: Double = 0.0,
+    val updated_at: Double = 0.0,
     val message_count: Int = 0,
     /**
      * Bound conversation. The desktop treats this as the room's "host" session
