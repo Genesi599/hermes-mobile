@@ -399,9 +399,14 @@ class ChatViewModel(
         if (currentId != null) {
             loadSessions()
             viewModelScope.launch(Dispatchers.IO) {
+                // Re-resume after a gateway reconnect. Carry the session's own
+                // profile — a cross-profile id would otherwise be looked up in
+                // the ACTIVE profile's db and fail with `4007 session not found`.
+                val params = mutableMapOf<String, Any>("session_id" to currentId)
+                currentSessionProfile?.let { params["profile"] = it }
                 wsClient.send(
                     WsMethods.SESSION_RESUME,
-                    mapOf("session_id" to currentId),
+                    params,
                     onSent = { id -> trackRequest(id, WsMethods.SESSION_RESUME) },
                 )
             }
@@ -1196,9 +1201,19 @@ class ChatViewModel(
         viewModelScope.launch {
             // Resume the selected desktop session, then load its complete transcript.
             launch(Dispatchers.IO) {
+                // Pass the session's OWN profile. The gateway opens a dedicated
+                // SessionDB for `profile` and otherwise looks the id up in the
+                // ACTIVE profile's db — so a cross-profile chat (e.g. the room's
+                // own `· Hermes` conversation, which lives in `default` while the
+                // app is scoped to `hermeseng`) answered `4007 session not found`
+                // and the transcript REST fallback had to carry the whole view.
+                // The REST page loader already sends `currentSessionProfile`;
+                // this keeps the WS path in agreement with it.
+                val params = mutableMapOf<String, Any>("session_id" to sessionId)
+                currentSessionProfile?.let { params["profile"] = it }
                 wsClient.send(
                     WsMethods.SESSION_RESUME,
-                    mapOf("session_id" to sessionId),
+                    params,
                     onSent = { id -> trackRequest(id, WsMethods.SESSION_RESUME) },
                 )
             }
