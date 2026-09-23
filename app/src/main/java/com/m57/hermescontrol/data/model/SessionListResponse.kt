@@ -21,6 +21,13 @@ data class SessionInfo(
     val source: String? = null,
     val parent_session_id: String? = null,
     val display_name: String? = null,
+    // Owning profile (2026-09-22 Sync App alignment):
+    //   - `/api/profiles/sessions?profile=all` sets this so the App can pin an
+    //     agent-roster chip click to the right profile before `resumeSession`.
+    //   - `/api/sessions` (current-profile only) omits it; the caller already
+    //     knows it's the active profile, so we default to null and let
+    //     `agentProfileSet(jobs)` resolve ownership where it matters.
+    val profile: String? = null,
 )
 
 @Serializable

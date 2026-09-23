@@ -3,14 +3,25 @@ package com.m57.hermescontrol.ui.sessions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.m57.hermescontrol.data.model.BulkDeleteRequest
+import com.m57.hermescontrol.data.model.Channel
+import com.m57.hermescontrol.data.model.ChannelListResponse
+import com.m57.hermescontrol.data.model.CronJob
 import com.m57.hermescontrol.data.model.PruneRequest
+import com.m57.hermescontrol.data.model.ProfileSessionInfo
+import com.m57.hermescontrol.data.model.ProfilesSessionsResponse
 import com.m57.hermescontrol.data.model.SessionInfo
+import com.m57.hermescontrol.data.model.SessionListResponse
 import com.m57.hermescontrol.data.model.SessionRenameRequest
 import com.m57.hermescontrol.data.remote.ApiClient
 import com.m57.hermescontrol.data.remote.NetworkResult
 import com.m57.hermescontrol.data.remote.safeApiCall
+import com.m57.hermescontrol.data.sessions.SidebarRoom
+import com.m57.hermescontrol.data.sessions.buildSidebarTree
 import com.m57.hermescontrol.ui.common.safeLaunchLoad
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,10 +33,27 @@ data class SessionStats(
     val active: Int = 0,
 )
 
+/**
+ * State of the Sync App sidebar (2026-09-22 alignment with the desktop
+ * "project rooms + agent roster" model).
+ *
+ * The screen renders the rooms list with agent chips underneath each
+ * room row; clicking a chip or a room sets
+ * `NavigationController.pendingSessionId` and pushes the chat screen.
+ * The `activeSessionId` lives in the `NavigationController` and is read
+ * directly by the screen for highlight — not duplicated in this state
+ * — that matches the desktop's `$focusedStoredSessionId` pattern
+ * (see `apps/desktop/src/app/chat/sidebar/agent-roster.tsx`).
+ *
+ * The legacy session-modification state (rename / delete / prune) stays
+ * in here too: the room + roster view drives the same one-conversation
+ * commands the old flat list did, just from a different row.
+ */
 data class SessionsUiState(
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val sessions: List<SessionInfo> = emptyList(),
+    val rooms: List<SidebarRoom> = emptyList(),
+    val flatSessions: List<SessionInfo> = emptyList(),
     val total: Int = 0,
     val errorMessage: String? = null,
     val stats: SessionStats = SessionStats(),
@@ -42,9 +70,29 @@ data class SessionsUiState(
     val sessionToDeleteConfirm: String? = null,
     val showBulkDeleteConfirm: Boolean = false,
 ) {
-    val hasMore: Boolean get() = total > sessions.size
+    val hasMore: Boolean get() = total > flatSessions.size
 }
 
+/**
+ * Sidebar view model — fetches the three sources the desktop sidebar
+ * uses, in parallel, and assembles the room + roster view via
+ * `buildSidebarTree`.
+ *
+ * The three sources:
+ *   1. `/api/profiles/sessions?profile=all`  — every cross-profile session.
+ *   2. `/api/channels`                       — the rooms (which sessions
+ *                                              are project rooms + who has
+ *                                              spoken there).
+ *   3. `/api/cron/jobs?profile=all`          — the delivery wiring (which
+ *                                              agent speaks into which room
+ *                                              via `attach_to_session`).
+ *
+ * On the desktop, all three are fetched by separate stores; on the App we
+ * batch them into a single load so the three refresh in lockstep. A
+ * partial failure (e.g. cron jobs 500 while channels/sessions succeed)
+ * degrades gracefully: the rooms render with only the participants from
+ * the channels response, no chip from the failing cron jobs list.
+ */
 class SessionsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(SessionsUiState())
     val uiState: StateFlow<SessionsUiState> = _uiState.asStateFlow()
@@ -57,45 +105,44 @@ class SessionsViewModel : ViewModel() {
         const val PAGE_SIZE = 20
     }
 
-    /** Load (or reload) sessions from page 0. Used by pull-to-refresh and initial load. */
+    /** Load (or reload) the sidebar. Used by pull-to-refresh and initial load.
+     *  Mirrors `safeLaunchLoad`'s contract: the loading flag flips synchronously
+     *  (before the coroutine body runs) so callers can assert it immediately. */
     fun loadSessions() {
+        loadJob?.cancel()
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         loadJob =
-            safeLaunchLoad(
-                currentJob = loadJob,
-                apiCall = {
-                    safeApiCall {
-                        ApiClient.hermesApi.getSessions(
-                            limit = PAGE_SIZE,
-                            offset = 0,
-                            order = "recent",
-                        )
-                    }
-                },
-                onStart = { _uiState.update { it.copy(isLoading = true, errorMessage = null) } },
-                onSuccess = { data ->
+            viewModelScope.launch {
+                val out = fetchSidebarInputs()
+                if (out == null) {
+                    // Both required sources failed; show an error banner but
+                    // keep any previously-rendered rooms visible so a
+                    // transient blip doesn't blank the sidebar.
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            isLoadingMore = false,
-                            sessions = data?.sessions.orEmpty(),
-                            total = data?.total ?: 0,
-                            selectedIds = emptySet(),
+                            errorMessage = lastSidebarError
+                                ?: "Failed to load sidebar — check connection.",
                         )
                     }
-                },
-                onError = { errorMsg ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = "Failed to load sessions: $errorMsg",
-                        )
-                    }
-                },
-            )
+                    return@launch
+                }
+                val (rooms, flatSessions) = out
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isLoadingMore = false,
+                        rooms = rooms,
+                        flatSessions = flatSessions,
+                        total = flatSessions.size,
+                        selectedIds = emptySet(),
+                    )
+                }
+            }
     }
 
-    /** Load the next page and append to the existing session list. */
+    /** Legacy paged load — kept for callers that want the flat session list
+     *  (e.g. tests, future "show all" view). Not wired into the UI yet. */
     fun loadMore() {
         val state = _uiState.value
         if (state.isLoadingMore || !state.hasMore) return
@@ -106,7 +153,7 @@ class SessionsViewModel : ViewModel() {
                 safeApiCall {
                     ApiClient.hermesApi.getSessions(
                         limit = PAGE_SIZE,
-                        offset = state.sessions.size,
+                        offset = state.flatSessions.size,
                         order = "recent",
                     )
                 }
@@ -116,7 +163,7 @@ class SessionsViewModel : ViewModel() {
                     _uiState.update {
                         it.copy(
                             isLoadingMore = false,
-                            sessions = it.sessions + data.sessions,
+                            flatSessions = it.flatSessions + data.sessions,
                             total = data.total,
                         )
                     }
@@ -190,7 +237,7 @@ class SessionsViewModel : ViewModel() {
 
     fun selectAll() {
         _uiState.update {
-            it.copy(selectedIds = it.sessions.map { s -> s.id }.toSet())
+            it.copy(selectedIds = it.flatSessions.map { s -> s.id }.toSet())
         }
     }
 
@@ -229,8 +276,8 @@ class SessionsViewModel : ViewModel() {
                     _uiState.update {
                         it.copy(
                             renamingSessionId = null,
-                            sessions =
-                                it.sessions.map { s ->
+                            flatSessions =
+                                it.flatSessions.map { s ->
                                     if (s.id == sessionId) s.copy(title = newTitle) else s
                                 },
                             toastMessage = "Session renamed",
@@ -299,7 +346,13 @@ class SessionsViewModel : ViewModel() {
                     _uiState.update {
                         it.copy(
                             deletingSessionIds = it.deletingSessionIds - sessionId,
-                            sessions = it.sessions.filter { s -> s.id != sessionId },
+                            flatSessions = it.flatSessions.filter { s -> s.id != sessionId },
+                            rooms = it.rooms.map { room ->
+                                room.copy(
+                                    session = if (room.session?.id == sessionId) null else room.session,
+                                    childSessions = room.childSessions.filter { c -> c.id != sessionId },
+                                )
+                            }.filter { room -> room.session != null || room.childSessions.isNotEmpty() },
                             total = it.total - 1,
                             toastMessage = "Session deleted",
                         )
@@ -347,7 +400,7 @@ class SessionsViewModel : ViewModel() {
                             isDeletingBulk = false,
                             isSelecting = false,
                             selectedIds = emptySet(),
-                            sessions = it.sessions.filter { s -> s.id !in ids },
+                            flatSessions = it.flatSessions.filter { s -> s.id !in ids },
                             total = it.total - ids.size,
                             toastMessage = "${ids.size} session(s) deleted",
                         )
@@ -415,4 +468,57 @@ class SessionsViewModel : ViewModel() {
     fun clearToast() {
         _uiState.update { it.copy(toastMessage = null) }
     }
+
+    // ── Internals ────────────────────────────────────────────────────────
+
+    /**
+     * Fetch the sidebar sources in parallel and tolerate partial failures:
+     * each sub-fetch is wrapped in its own `safeApiCall` so a failing cron
+     * endpoint does not zero out channels + sessions. The desktop handles
+     * this with per-store error boundaries; the App collapses the same
+     * behavior into one round trip here.
+     *
+     * @return null when both required sources (profiles/sessions and
+     *         channels) failed — the caller surfaces an error banner.
+     */
+    private suspend fun fetchSidebarInputs(): Pair<List<SidebarRoom>, List<SessionInfo>>? =
+        coroutineScope {
+            val sessionsAsync = async { safeApiCall<ProfilesSessionsResponse> { ApiClient.hermesApi.getProfilesSessions() } }
+            val channelsAsync = async { safeApiCall<ChannelListResponse> { ApiClient.hermesApi.getChannels() } }
+            val jobsAsync = async { safeApiCall<List<CronJob>> { ApiClient.hermesApi.getCronJobs() } }
+            val allSessionsAsync = async { safeApiCall<SessionListResponse> { ApiClient.hermesApi.getSessions(limit = PAGE_SIZE) } }
+            val sessionsRes = sessionsAsync.await()
+            val channelsRes = channelsAsync.await()
+            val jobsRes = jobsAsync.await()
+            val allSessionsRes = allSessionsAsync.await()
+
+            // Sessions + channels are the *two* required sources for a
+            // sidebar to render; when both fail the sidebar cannot build
+            // anything — signal the caller to show the error state. Either
+            // one alone still renders (degraded: rooms without children, or
+            // children without room metadata). Cron jobs are optional: a
+            // missing endpoint just means chips render as "bare" until the
+            // gateway regains access.
+            val sessionsFailed = sessionsRes is NetworkResult.Failure
+            val channelsFailed = channelsRes is NetworkResult.Failure
+            if (sessionsFailed && channelsFailed) {
+                lastSidebarError = (sessionsRes as? NetworkResult.Failure)?.error?.message
+                    ?: (channelsRes as? NetworkResult.Failure)?.error?.message
+                return@coroutineScope null
+            }
+
+            val profileSessions = sessionsRes.takeIfSuccess()?.sessions.orEmpty()
+            val channels = channelsRes.takeIfSuccess()?.channels.orEmpty()
+            val jobs = jobsRes.takeIfSuccess().orEmpty()
+            val flat = allSessionsRes.takeIfSuccess()?.sessions.orEmpty()
+
+            val rooms = buildSidebarTree(profileSessions, channels, jobs)
+            rooms to flat
+        }
+
+    /** Message of the most recent failed sidebar fetch, for the error banner. */
+    private var lastSidebarError: String? = null
+
+    private fun <T : Any> NetworkResult<T>.takeIfSuccess(): T? =
+        (this as? NetworkResult.Success<T>)?.data
 }

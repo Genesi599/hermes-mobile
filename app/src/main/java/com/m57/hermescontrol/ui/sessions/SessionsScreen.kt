@@ -1,83 +1,60 @@
 package com.m57.hermescontrol.ui.sessions
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.m57.hermescontrol.ChatScreen
 import com.m57.hermescontrol.NavigationController
 import com.m57.hermescontrol.R
-import com.m57.hermescontrol.data.model.SessionInfo
-import com.m57.hermescontrol.data.model.flattenSessionTree
+import com.m57.hermescontrol.data.model.ProfileSessionInfo
+import com.m57.hermescontrol.data.sessions.SessionAgent
+import com.m57.hermescontrol.data.sessions.SidebarRoom
+import com.m57.hermescontrol.data.sessions.agentTitleFor
 import com.m57.hermescontrol.theme.LocalHermesStatusColors
 import com.m57.hermescontrol.theme.LocalSpacing
 import com.m57.hermescontrol.ui.common.EmptyState
@@ -85,511 +62,287 @@ import com.m57.hermescontrol.ui.common.ErrorState
 import com.m57.hermescontrol.ui.common.HermesScaffold
 import com.m57.hermescontrol.ui.common.LoadingState
 import com.m57.hermescontrol.ui.common.NavIcon
-import com.m57.hermescontrol.ui.common.SearchBar
 import com.m57.hermescontrol.ui.common.StatCard
-import com.m57.hermescontrol.ui.common.StatusBadge
-import com.m57.hermescontrol.ui.common.StatusBadgeType
 import com.m57.hermescontrol.ui.common.ToastEffect
 import com.m57.hermescontrol.ui.common.listContentPadding
-import com.m57.hermescontrol.ui.common.listItemSpacing
 
 /**
- * Maps a session source string to a Material icon for visual identification.
+ * Sync App sidebar — 2026-09-22 alignment with the desktop's
+ * "project room + agent roster" view.
+ *
+ * Each top-level row is a project room, drawn from a {@link SidebarRoom}.
+ * Underneath, the room renders two kinds of agent-reach UI:
+ *
+ * 1. **Chips** for wired agents (those with a delivery cron job pointing
+ *    into the room). Clicking a chip opens that agent's conversation —
+ *    looked up by the `<项目> · <智能体>` title, since the chip's
+ *    `profile` may not yet have wired a session.
+ * 2. **Auto-detected child sessions** — `<项目> · <智能体>` titled rows
+ *    already in `ProfileSessionInfo.allSessions`. These render as
+ *    secondary rows under the room when no delivery wiring has set up
+ *    a chip for the same agent yet.
+ *
+ * Highlight (the "selected" room/chip) follows
+ * `NavigationController.pendingSessionId` — same single source of truth
+ * the desktop sidebar uses (`$focusedStoredSessionId`).
  */
-private fun sourceIcon(source: String?): ImageVector? =
-    when (source?.lowercase()) {
-        "telegram", "tg" -> Icons.Filled.Send
-        "web", "dashboard" -> Icons.Filled.Language
-        "api", "rest" -> Icons.Filled.Code
-        "cli", "terminal" -> Icons.Filled.Terminal
-        else -> null
-    }
-
-/**
- * Maps a source string to a label for tooltip / accessibility.
- */
-private fun sourceLabel(source: String?): String =
-    when (source?.lowercase()) {
-        "telegram", "tg" -> "Telegram"
-        "web", "dashboard" -> "Web"
-        "api", "rest" -> "API"
-        "cli", "terminal" -> "CLI"
-        else -> source ?: "Unknown"
-    }
-
-/**
- * Builds an annotated string with search term highlighting.
- */
-private fun highlightText(
-    text: String,
-    query: String,
-    highlightBackground: Color,
-    highlightForeground: Color,
-): AnnotatedString =
-    buildAnnotatedString {
-        if (query.isBlank()) {
-            append(text)
-            return@buildAnnotatedString
-        }
-        val lowerText = text.lowercase()
-        val lowerQuery = query.lowercase()
-        var currentIndex = 0
-        while (currentIndex < text.length) {
-            val matchIndex = lowerText.indexOf(lowerQuery, currentIndex)
-            if (matchIndex == -1) {
-                append(text.substring(currentIndex))
-                break
-            }
-            if (matchIndex > currentIndex) {
-                append(text.substring(currentIndex, matchIndex))
-            }
-            withStyle(
-                SpanStyle(
-                    background = highlightBackground,
-                    color = highlightForeground,
-                    fontWeight = FontWeight.Bold,
-                ),
-            ) {
-                append(text.substring(matchIndex, matchIndex + query.length))
-            }
-            currentIndex = matchIndex + query.length
-        }
-    }
-
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SessionsScreen(
-    modifier: Modifier = Modifier,
-    onOpenDrawer: (() -> Unit)? = null,
-    viewModel: SessionsViewModel = viewModel { SessionsViewModel() },
-) {
+fun SessionsScreen(onOpenDrawer: () -> Unit) {
+    val viewModel: SessionsViewModel = viewModel()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val spacing = LocalSpacing.current
-    val statusColors = LocalHermesStatusColors.current
-    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
-    val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
-
-    var query by remember { mutableStateOf("") }
-    var pruneDays by remember { mutableStateOf("7") }
-
-    val sessionTree = remember(state.sessions) { flattenSessionTree(state.sessions) }
-    val filteredSessions =
-        remember(query, sessionTree) {
-            if (query.isBlank()) {
-                sessionTree
-            } else {
-                sessionTree.filter { item ->
-                    item.displayTitle.contains(query, ignoreCase = true) ||
-                        item.session.preview?.contains(query, ignoreCase = true) == true ||
-                        item.session.status?.contains(query, ignoreCase = true) == true
-                }
-            }
-        }
-
-    val hasSelection = state.selectedIds.isNotEmpty()
+    val activeId = NavigationController.pendingSessionId
 
     LaunchedEffect(Unit) {
         viewModel.loadSessions()
         viewModel.loadStats()
     }
 
-    // Toast effect
-    ToastEffect(
-        toastMessage = state.toastMessage,
-        onClearToast = { viewModel.clearToast() },
-    )
-
-    // Prune dialog
-    if (state.showPruneDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.hidePruneDialog() },
-            title = { Text(stringResource(R.string.sessions_prune_title)) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.sessions_prune_desc))
-                    Spacer(modifier = Modifier.height(spacing.md))
-                    OutlinedTextField(
-                        value = pruneDays,
-                        onValueChange = { pruneDays = it.filter { c -> c.isDigit() } },
-                        label = { Text(stringResource(R.string.sessions_prune_days_label)) },
-                        placeholder = { Text("7") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions =
-                            KeyboardActions(
-                                onDone = {
-                                    val days = pruneDays.toIntOrNull()
-                                    if (days != null && days > 0) viewModel.pruneSessions(days)
-                                },
-                            ),
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val days = pruneDays.toIntOrNull()
-                        if (days != null && days > 0) viewModel.pruneSessions(days)
-                    },
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = statusColors.error,
-                        ),
-                ) {
-                    Text(stringResource(R.string.sessions_prune_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.hidePruneDialog() }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    // Single-session delete confirmation dialog
-    if (state.sessionToDeleteConfirm != null) {
-        val sessionToDelete = state.sessionToDeleteConfirm
-        val sessionTitle =
-            state.sessions
-                .find { it.id == sessionToDelete }
-                ?.title
-                ?.takeIf { it.isNotBlank() } ?: stringResource(R.string.history_untitled)
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelDeleteSession() },
-            title = { Text(stringResource(R.string.sessions_delete_title)) },
-            text = {
-                Text(stringResource(R.string.sessions_delete_message, sessionTitle))
-            },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.confirmDeleteSession() },
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = statusColors.error,
-                        ),
-                ) {
-                    Text(stringResource(R.string.action_delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelDeleteSession() }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    // Bulk delete confirmation dialog
-    if (state.showBulkDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelBulkDelete() },
-            title = { Text(stringResource(R.string.sessions_bulk_delete_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.sessions_bulk_delete_message,
-                        state.selectedIds.size,
-                    ),
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.confirmBulkDelete() },
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = statusColors.error,
-                        ),
-                ) {
-                    Text(stringResource(R.string.action_delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelBulkDelete() }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
     HermesScaffold(
         title = { Text(stringResource(R.string.screen_history)) },
-        navigationIcon = onOpenDrawer?.let { NavIcon.Menu(it) },
+        navigationIcon = NavIcon.Menu(onOpen = onOpenDrawer),
+        onRefresh = viewModel::loadSessions,
         isRefreshing = state.isLoading,
-        onRefresh = { viewModel.loadSessions() },
-        modifier = modifier,
+        actions = { TopBarActions(state, viewModel) },
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when {
+                state.isLoading && state.rooms.isEmpty() -> LoadingState()
+                state.errorMessage != null && state.rooms.isEmpty() -> {
+                    ErrorState(
+                        message = state.errorMessage ?: "",
+                        onRetry = viewModel::loadSessions,
+                    )
+                }
+                state.rooms.isEmpty() -> EmptyState(
+                    title = stringResource(R.string.sessions_empty_title),
+                    subtitle = stringResource(R.string.sessions_empty_subtitle),
+                )
+                else -> SidebarList(state, activeId, viewModel)
+            }
+
+            ToastEffect(toastMessage = state.toastMessage, onClearToast = viewModel::clearToast)
+        }
+    }
+}
+
+@Composable
+private fun TopBarActions(
+    state: SessionsUiState,
+    viewModel: SessionsViewModel,
+) {
+    val spacing = LocalSpacing.current
+    if (state.isSelecting) {
+        TextButton(onClick = viewModel::selectAll) {
+            Icon(
+                imageVector = Icons.Filled.SelectAll,
+                contentDescription = null,
+                modifier = Modifier.size(spacing.md),
+            )
+            Spacer(Modifier.width(spacing.xs))
+            Text(stringResource(R.string.sessions_select_all))
+        }
+        IconButton(onClick = viewModel::requestBulkDelete, enabled = state.selectedIds.isNotEmpty()) {
+            Icon(
+                imageVector = Icons.Filled.DeleteSweep,
+                contentDescription = stringResource(R.string.sessions_bulk_delete),
+                tint =
+                    if (state.selectedIds.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error,
+            )
+        }
+        IconButton(onClick = viewModel::toggleSelecting) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.sessions_cancel),
+            )
+        }
+    } else {
+        IconButton(onClick = viewModel::toggleSelecting) {
+            Icon(
+                imageVector = Icons.Filled.SelectAll,
+                contentDescription = stringResource(R.string.sessions_select_all),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SidebarList(
+    state: SessionsUiState,
+    activeId: String?,
+    viewModel: SessionsViewModel,
+) {
+    val spacing = LocalSpacing.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("sessions_list"),
+        contentPadding = listContentPadding,
+        verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        when {
-            state.isLoading && state.sessions.isEmpty() -> {
-                LoadingState()
-            }
-
-            state.errorMessage != null -> {
-                val errorMsg = state.errorMessage
-                ErrorState(
-                    message = errorMsg ?: stringResource(R.string.error_unknown),
-                    onRetry = { viewModel.loadSessions() },
-                )
-            }
-
-            state.sessions.isEmpty() -> {
-                EmptyState(
-                    title = stringResource(R.string.history_empty_title),
-                    subtitle = stringResource(R.string.history_empty_desc),
-                    icon = Icons.Filled.History,
-                )
-            }
-
-            else -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // ── Stats row ───────────────────────────────────────
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = spacing.md, vertical = spacing.sm),
-                        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-                    ) {
-                        StatCard(
-                            label = stringResource(R.string.sessions_stat_total),
-                            value = if (state.isLoadingStats) "…" else state.stats.total.toString(),
-                            icon = Icons.Filled.History,
-                            modifier = Modifier.weight(1f),
-                        )
-                        StatCard(
-                            label = stringResource(R.string.sessions_stat_active),
-                            value = if (state.isLoadingStats) "…" else state.stats.active.toString(),
-                            icon = Icons.Filled.CheckCircle,
-                            accentColor = statusColors.success,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // Prune button card
-                        Card(
-                            modifier = Modifier.weight(1f),
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                ),
-                            onClick = { viewModel.showPruneDialog() },
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(spacing.md),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Filled.DeleteSweep,
-                                        contentDescription = null,
-                                        tint = statusColors.warning,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Spacer(modifier = Modifier.height(spacing.xs))
-                                    Text(
-                                        text = stringResource(R.string.sessions_action_prune),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = statusColors.warning,
-                                    )
-                                }
-                            }
-                        }
+        item("stats") {
+            StatsRow(state, viewModel)
+        }
+        items(items = state.rooms, key = { it.sessionId ?: it.title }) { room ->
+            SidebarRoomRow(
+                room = room,
+                activeId = activeId,
+                onRoomClick = {
+                    val sid = room.session?.id ?: room.sessionId
+                    if (sid != null) openSession(sid)
+                },
+                onAgentClick = { agent ->
+                    val childSession = resolveAgentConversation(room, agent)
+                    if (childSession != null) {
+                        openSession(childSession.id)
+                    } else {
+                        // No child session yet — chip is "wired but no
+                        // agent has spoken"; open the room so the user
+                        // sees the wiring but no agent row lights up.
+                        room.session?.id?.let { openSession(it) }
                     }
-                    // Stats error snack
-                    val statsError = state.statsError
-                    if (statsError != null) {
-                        Text(
-                            text = statsError,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = statusColors.error,
-                            modifier = Modifier.padding(horizontal = spacing.md),
-                        )
-                    }
-
-                    // ── Search + bulk toggle ────────────────────────────
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SearchBar(
-                            query = query,
-                            onQueryChange = { query = it },
-                            placeholder = stringResource(R.string.sessions_search_placeholder),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(modifier = Modifier.width(spacing.sm))
-                        IconButton(onClick = { viewModel.toggleSelecting() }) {
-                            Icon(
-                                imageVector = if (state.isSelecting) Icons.Filled.Close else Icons.Filled.SelectAll,
-                                contentDescription =
-                                    if (state.isSelecting) {
-                                        stringResource(R.string.content_desc_exit_selection)
-                                    } else {
-                                        stringResource(R.string.content_desc_enter_selection)
-                                    },
-                            )
-                        }
-                    }
-
-                    // ── Session list ────────────────────────────────────
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = listContentPadding,
-                        verticalArrangement = listItemSpacing,
-                    ) {
-                        items(filteredSessions, key = { it.session.id }) { item ->
-                            val session = item.session
-                            SessionCard(
-                                session = session,
-                                displayTitle = item.displayTitle,
-                                depth = item.depth,
-                                branchStem = item.branchStem,
-                                query = query,
-                                isSelecting = state.isSelecting,
-                                isSelected = session.id in state.selectedIds,
-                                isDeleting = session.id in state.deletingSessionIds,
-                                highlightBackground = primaryContainer,
-                                highlightForeground = onPrimaryContainer,
-                                onCardClick = {
-                                    if (state.isSelecting) {
-                                        viewModel.toggleSessionSelection(session.id)
-                                    } else {
-                                        NavigationController.pendingSessionId = session.id
-                                        NavigationController.navigateTo(ChatScreen)
-                                    }
-                                },
-                                onCardLongClick = {
-                                    if (!state.isSelecting) {
-                                        viewModel.toggleSelecting()
-                                        viewModel.toggleSessionSelection(session.id)
-                                    }
-                                },
-                                onToggleSelection = { viewModel.toggleSessionSelection(session.id) },
-                                onDelete = { viewModel.requestDeleteSession(session.id) },
-                            )
-                        }
-
-                        // Load more
-                        if (state.hasMore || state.isLoadingMore) {
-                            item {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = spacing.sm),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (state.isLoadingMore) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp,
-                                        )
-                                    } else {
-                                        Text(
-                                            text = stringResource(R.string.history_load_more),
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier =
-                                                Modifier
-                                                    .testTag("load_more_sessions")
-                                                    .clickable(role = Role.Button) {
-                                                        viewModel.loadMore()
-                                                    },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                },
+            )
+        }
+        if (state.isLoadingMore) {
+            item("loading_more") {
+                Box(
+                    Modifier.fillMaxWidth().padding(spacing.md),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(spacing.lg))
                 }
             }
         }
     }
+}
 
-    // ── Bulk action toolbar (animated) ──────────────────────────────────
-    AnimatedVisibility(
-        visible = state.isSelecting && hasSelection,
-        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-        modifier = Modifier.fillMaxSize(),
+@Composable
+private fun StatsRow(
+    state: SessionsUiState,
+    @Suppress("UNUSED_PARAMETER") viewModel: SessionsViewModel,
+) {
+    val spacing = LocalSpacing.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.md),
+        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 8.dp,
-                tonalElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        StatCard(
+            label = stringResource(R.string.sessions_stat_total),
+            value = if (state.isLoadingStats) "…" else state.stats.total.toString(),
+            modifier = Modifier.weight(1f),
+        )
+        StatCard(
+            label = stringResource(R.string.sessions_stat_active),
+            value = if (state.isLoadingStats) "…" else state.stats.active.toString(),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun SidebarRoomRow(
+    room: SidebarRoom,
+    activeId: String?,
+    onRoomClick: () -> Unit,
+    onAgentClick: (SessionAgent) -> Unit,
+) {
+    val spacing = LocalSpacing.current
+    val statusColors = LocalHermesStatusColors.current
+    val isRoomActive = room.sessionId != null && room.sessionId == activeId
+    val agentsWithSessions = resolveAgentsWithConversations(room)
+    val orphanChildren = room.childSessions.filter { child ->
+        child.id != activeId || isRoomActive
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("sidebar_room_${room.title}"),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                                    if (isRoomActive) statusColors.success.copy(alpha = 0.12f)
+                                    else MaterialTheme.colorScheme.surface,
+                            ),
+                        border = if (isRoomActive) BorderStroke(1.dp, statusColors.success) else null,
+    ) {
+        Column(modifier = Modifier.padding(spacing.sm)) {
+            // ── Room row ────────────────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(spacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = spacing.md, vertical = spacing.sm),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Select all / deselect
-                    OutlinedButton(
-                        onClick = {
-                            if (state.selectedIds.size == filteredSessions.size) {
-                                viewModel.clearSelection()
-                            } else {
-                                viewModel.selectAll()
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector =
-                                if (state.selectedIds.size == filteredSessions.size) {
-                                    Icons.Filled.Close
-                                } else {
-                                    Icons.Filled.SelectAll
-                                },
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(spacing.xs))
+                Box(modifier = Modifier.size(spacing.md), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.History,
+                        contentDescription = null,
+                        tint = statusColors.success,
+                    )
+                }
+                Spacer(Modifier.width(spacing.sm))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = room.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isRoomActive) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    room.session?.preview?.takeIf { it.isNotBlank() }?.let {
                         Text(
-                            if (state.selectedIds.size == filteredSessions.size) {
-                                stringResource(R.string.sessions_action_deselect_all)
-                            } else {
-                                stringResource(R.string.sessions_action_select_all)
-                            },
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Text(
+                    text = room.session?.message_count?.toString() ?: "0",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // ── Chips cluster ───────────────────────────────────────────
+            if (agentsWithSessions.isNotEmpty() || orphanChildren.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(top = spacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                ) {
+                    // Hermes chip always first, mirroring the desktop.
+                    val her = agentsWithSessions.firstOrNull { it.label == "Hermes" }
+                    if (her != null) {
+                        AgentChip(
+                            label = "Hermes",
+                            avatar = her.avatar,
+                            isActive = activeId == room.session?.id && her.label == "Hermes",
+                            onClick = { onAgentClick(her) },
                         )
                     }
 
-                    // Delete selected
-                    Button(
-                        onClick = { viewModel.requestBulkDelete() },
-                        enabled = !state.isDeletingBulk,
-                        colors =
-                            ButtonDefaults.buttonColors(
-                                containerColor = statusColors.error,
-                            ),
-                    ) {
-                        if (state.isDeletingBulk) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = Color.White,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Filled.Delete,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
+                    agentsWithSessions
+                        .filter { it.label != "Hermes" }
+                        .forEach { agent ->
+                            val child = resolveAgentConversation(room, agent)
+                            AgentChip(
+                                label = agent.label,
+                                avatar = agent.avatar,
+                                isActive = child != null && child.id == activeId,
+                                onClick = { onAgentClick(agent) },
                             )
                         }
-                        Spacer(modifier = Modifier.width(spacing.xs))
-                        Text(
-                            stringResource(
-                                R.string.sessions_action_delete_n,
-                                state.selectedIds.size,
-                            ),
+
+                    // Orphan children — agents that have a session but
+                    // no delivery wiring yet (e.g. a one-off chat started
+                    // by the user before the cron job existed).
+                    orphanChildren.forEach { child ->
+                        val label = child.display_name ?: agentLabelFromTitle(child.title, room.title)
+                        AgentChip(
+                            label = label,
+                            avatar = child.preview?.takeIf { it.isNotBlank() }?.firstOrNull()?.toString(),
+                            isActive = child.id == activeId,
+                            onClick = { openSession(child.id) },
+                            isOrphan = true,
                         )
                     }
                 }
@@ -598,146 +351,135 @@ fun SessionsScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * An agent chip — the visual contract from the desktop sidebar:
+ * avatar circle + label, muted when the chip is wired but has no child
+ * session yet (the desktop renders this as a `wiredNoChild` style with
+ * a softer text color and no completion dot).
+ *
+ * `isActive` is the highlighted state when this chip's child session
+ * is currently the focused conversation.
+ *
+ * `isOrphan` is for child sessions whose agent has no delivery cron
+ * wiring — the chip still navigates to the session, but the visual
+ * distinguishes them so the user can tell "this exists, but no agent
+ * delivers here".
+ */
 @Composable
-private fun SessionCard(
-    session: SessionInfo,
-    displayTitle: String,
-    depth: Int,
-    branchStem: String?,
-    query: String,
-    isSelecting: Boolean,
-    isSelected: Boolean,
-    isDeleting: Boolean,
-    highlightBackground: Color,
-    highlightForeground: Color,
-    onCardClick: () -> Unit,
-    onCardLongClick: () -> Unit,
-    onToggleSelection: () -> Unit,
-    onDelete: () -> Unit,
+private fun AgentChip(
+    label: String,
+    avatar: String?,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    isOrphan: Boolean = false,
 ) {
     val spacing = LocalSpacing.current
     val statusColors = LocalHermesStatusColors.current
-    val isActive = session.status?.lowercase() in setOf("active", "streaming", "working", "running")
-    val srcIcon = sourceIcon(session.source)
-
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(start = (depth * 16).dp)
-                .testTag("session_card_${session.id}")
-                .combinedClickable(
-                    onClick = onCardClick,
-                    onLongClick = onCardLongClick,
-                ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    val transition = rememberInfiniteTransition(label = "agent_chip_arc")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(durationMillis = 1800),
+                repeatMode = RepeatMode.Restart,
             ),
-        border =
-            if (isActive && !isSelecting) {
-                BorderStroke(2.dp, statusColors.success)
-            } else if (isSelected) {
-                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-            } else {
-                null
-            },
-    ) {
-        Row(
-            modifier = Modifier.padding(spacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Checkbox in select mode
-            if (isSelecting) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onToggleSelection() },
-                    modifier = Modifier.testTag("session_checkbox_${session.id}"),
-                )
-                Spacer(modifier = Modifier.width(spacing.sm))
+        label = "agent_chip_arc_angle",
+    )
+
+    val borderColor =
+            when {
+                isActive -> statusColors.success
+                isOrphan -> MaterialTheme.colorScheme.outlineVariant
+                else -> MaterialTheme.colorScheme.outline
             }
 
-            // Branch tree stem
-            if (branchStem != null && !isSelecting) {
+    AssistChip(
+        onClick = onClick,
+        label = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (avatar != null && avatar.length == 1) {
+                    Text(
+                        text = avatar,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.rotate(if (isActive) angle else 0f),
+                    )
+                    Spacer(Modifier.width(spacing.xs))
+                }
                 Text(
-                    text = branchStem,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-                Spacer(modifier = Modifier.width(spacing.sm))
-            }
-
-            // Source icon
-            if (srcIcon != null && !isSelecting) {
-                Icon(
-                    imageVector = srcIcon,
-                    contentDescription = sourceLabel(session.source),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(spacing.sm))
-            }
-
-            // Main content
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text =
-                        if (query.isNotBlank()) {
-                            highlightText(displayTitle, query, highlightBackground, highlightForeground)
-                        } else {
-                            AnnotatedString(displayTitle)
-                        },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    text = label,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    fontSize = 12.sp,
                 )
-
-                Spacer(modifier = Modifier.height(spacing.xs))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.history_message_count, session.message_count ?: 0),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!session.status.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.width(spacing.sm))
-                        StatusBadge(
-                            text = session.status,
-                            status = if (isActive) StatusBadgeType.SUCCESS else StatusBadgeType.NEUTRAL,
-                        )
-                    }
-                }
             }
+        },
+        colors =
+            AssistChipDefaults.assistChipColors(
+                containerColor =
+                    if (isActive) statusColors.success.copy(alpha = 0.16f)
+                    else if (isOrphan) MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.surface,
+            ),
+        border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = borderColor),
+    )
 
-            // Action buttons (not in select mode)
-            if (!isSelecting) {
-                Row(horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                    // Delete
-                    if (isDeleting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Delete,
-                                contentDescription = stringResource(R.string.action_delete),
-                                modifier = Modifier.size(16.dp),
-                                tint = statusColors.error,
-                            )
-                        }
-                    }
-                }
-            }
-        }
+}
+
+private fun agentLabelFromTitle(
+    title: String?,
+    project: String,
+): String {
+    if (title.isNullOrBlank()) return ""
+    val marker = "$project · "
+    val stripped = if (title.startsWith(marker)) title.substring(marker.length) else title
+    return stripped.substringBefore(" (").substringBeforeLast(" · ", "")
+}
+
+/** Resolve the agent's conversation under a room by name. */
+private fun resolveAgentConversation(
+    room: SidebarRoom,
+    agent: SessionAgent,
+): ProfileSessionInfo? {
+    // Hermes chip — `X · Hermes` is the room's own session (the maintainer
+    // speaks IN the room, so its own conversation is the room session).
+    if (agent.label == "Hermes") return room.session
+
+    // First try the conventional title.
+    val want = agentTitleFor(room.title, agent.label)
+    val exact = room.childSessions.firstOrNull { it.title == want }
+    if (exact != null) return exact
+
+    // Then prefix — handles the `(n)` dedupe-counter variant the naming
+    // script appends when the agent label is already taken.
+    return room.childSessions.firstOrNull { it.title?.startsWith(want) == true }
+}
+
+/**
+ * Agents for whom there is at least one conversation under the room —
+ * wired agents (from the cron jobs) AND children that already exist.
+ * Hermes is added explicitly because the roster never renders it through
+ * the jobs list.
+ */
+private fun resolveAgentsWithConversations(room: SidebarRoom): List<SessionAgent> {
+    val wiredByLabel = room.agents.associateBy { it.label }
+    val labels = mutableSetOf<String>()
+    val agents = mutableListOf<SessionAgent>()
+    // Hermes first (the roster always renders Hermes at index 0).
+    if (room.session != null) {
+        val herWired = wiredByLabel["Hermes"]
+        agents.add(SessionAgent(label = "Hermes", avatar = herWired?.avatar, profile = herWired?.profile))
+        labels.add("Hermes")
     }
+    for (a in room.agents) {
+        if (a.label in labels) continue
+        agents.add(a)
+        labels.add(a.label)
+    }
+    return agents
+}
+
+private fun openSession(sessionId: String) {
+    NavigationController.pendingSessionId = sessionId
+    NavigationController.navigateTo(ChatScreen)
 }

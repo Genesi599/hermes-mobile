@@ -9,6 +9,7 @@ import com.m57.hermescontrol.data.model.AgentPluginInstallBody
 import com.m57.hermescontrol.data.model.ApiBalanceResponse
 import com.m57.hermescontrol.data.model.AuxiliaryModelsResponse
 import com.m57.hermescontrol.data.model.BulkDeleteRequest
+import com.m57.hermescontrol.data.model.ChannelListResponse
 import com.m57.hermescontrol.data.model.CheckpointsResponse
 import com.m57.hermescontrol.data.model.CloneProfileRequest
 import com.m57.hermescontrol.data.model.ConfigSchemaResponse
@@ -54,6 +55,7 @@ import com.m57.hermescontrol.data.model.PluginsHubResponse
 import com.m57.hermescontrol.data.model.PortalResponse
 import com.m57.hermescontrol.data.model.ProfileSoulResponse
 import com.m57.hermescontrol.data.model.ProfilesResponse
+import com.m57.hermescontrol.data.model.ProfilesSessionsResponse
 import com.m57.hermescontrol.data.model.PruneRequest
 import com.m57.hermescontrol.data.model.RawConfigResponse
 import com.m57.hermescontrol.data.model.RecentUnlock
@@ -130,10 +132,48 @@ interface HermesApiService {
         @Query("order") order: String = "recent",
     ): Response<SessionListResponse>
 
+    /**
+     * All profiles, one fetch — the cross-profile session list the desktop
+     * sidebar uses to derive its room + agent chip layout
+     * (`apps/desktop/src/hermes/listAllProfileSessions`, profile=all).
+     *
+     * 2026-09-22 Sync App alignment: the Sync App sidebar replaces the
+     * single-profile `getSessions` view with this one so the rooms/roster
+     * it renders mirror the desktop's. Returns rows tagged with their
+     * owning `profile`, `git_repo_root`, and `cwd` so project grouping
+     * (`projectIdForCwd` on the desktop) works the same way here.
+     */
+    @GET("api/profiles/sessions")
+    suspend fun getProfilesSessions(
+        @Query("limit") limit: Int = 100,
+        @Query("offset") offset: Int = 0,
+        @Query("min_messages") minMessages: Int = 1,
+        @Query("archived") archived: String = "exclude",
+        @Query("order") order: String = "recent",
+        @Query("profile") profile: String = "all",
+        @Query("source") source: String? = null,
+        @Query("sources") sources: String? = null,
+        @Query("exclude_sources") excludeSources: String? = null,
+    ): Response<ProfilesSessionsResponse>
+
+    /**
+     * Project rooms, newest activity first
+     * (`apps/desktop/src/lib/channels.ts:listChannels`). Bound `session_id`
+     * marks the row as a room — the Sync App sidebar uses this to know
+     * which session rows are "project rooms" and which are agent private
+     * chats. `project` narrows the list when the user scopes the sidebar
+     * to one project (not yet wired on mobile — left for future work).
+     */
+    @GET("api/channels")
+    suspend fun getChannels(
+        @Query("project") project: String? = null,
+        @Query("profile") profile: String? = null,
+    ): Response<ChannelListResponse>
+
     @GET("api/sessions/{id}/messages")
     suspend fun getSessionMessages(
-        // Preserve slashes in session IDs — backend generates IDs containing '/' characters (issue #468).
-        // Contract: The server-generated sessionId must only contain URL-safe characters (no ?, #, or spaces).
+    // Preserve slashes in session IDs — backend generates IDs containing '/' characters (issue #468).
+    // Contract: The server-generated sessionId must only contain URL-safe characters (no ?, #, or spaces).
         @Path("id", encoded = true) sessionId: String,
         @Query("limit") limit: Int? = null,
         @Query("offset") offset: Int = 0,
@@ -402,7 +442,7 @@ interface HermesApiService {
     suspend fun updateMcpServer(
         @Path("name") name: String,
         @Body body: Map<String, Any>,
-    ): Response<McpServer>
+    ): Response<Unit>
 
     @POST("api/mcp/servers/{name}/restart")
     suspend fun restartMcpServer(
@@ -601,7 +641,7 @@ interface HermesApiService {
 
     @POST("api/plugins/kanban/tasks")
     suspend fun createKanbanTask(
-        @Query("board") board: String?,
+        @Query("board") board: String? = null,
         @Body task: CreateTaskBody,
     ): Response<KanbanTask>
 

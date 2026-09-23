@@ -7,6 +7,7 @@ import com.m57.hermescontrol.data.local.AuthManager
 import com.m57.hermescontrol.data.model.ActionResponse
 import com.m57.hermescontrol.data.model.ActiveProfileResponse
 import com.m57.hermescontrol.data.model.AuxiliaryModelsResponse
+import com.m57.hermescontrol.data.model.ChannelListResponse
 import com.m57.hermescontrol.data.model.CheckpointsResponse
 import com.m57.hermescontrol.data.model.CredentialPoolResponse
 import com.m57.hermescontrol.data.model.CronJob
@@ -35,6 +36,7 @@ import com.m57.hermescontrol.data.model.PluginsHubResponse
 import com.m57.hermescontrol.data.model.PortalResponse
 import com.m57.hermescontrol.data.model.ProfileInfo
 import com.m57.hermescontrol.data.model.ProfilesResponse
+import com.m57.hermescontrol.data.model.ProfilesSessionsResponse
 import com.m57.hermescontrol.data.model.SessionInfo
 import com.m57.hermescontrol.data.model.SessionListResponse
 import com.m57.hermescontrol.data.model.Skill
@@ -665,6 +667,12 @@ class E2eIntegrationTest {
             coEvery {
                 mockApiService.getSessions(any(), any(), any())
             } returns Response.success(SessionListResponse(listOf(session)))
+            // Sidebar sources (2026-09-23 room + roster alignment).
+            coEvery { mockApiService.getProfilesSessions() } returns
+                Response.success(ProfilesSessionsResponse())
+            coEvery { mockApiService.getChannels() } returns
+                Response.success(ChannelListResponse())
+            coEvery { mockApiService.getCronJobs() } returns Response.success(emptyList())
 
             val viewModel = SessionsViewModel()
             viewModel.loadSessions()
@@ -673,25 +681,25 @@ class E2eIntegrationTest {
             advanceUntilIdle()
 
             assertFalse(viewModel.uiState.value.isLoading)
-            assertEquals(1, viewModel.uiState.value.sessions.size)
+            assertEquals(1, viewModel.uiState.value.flatSessions.size)
             assertEquals(
                 "session-123",
-                viewModel.uiState.value.sessions[0]
+                viewModel.uiState.value.flatSessions[0]
                     .id,
             )
             assertEquals(
                 "Session 1",
-                viewModel.uiState.value.sessions[0]
+                viewModel.uiState.value.flatSessions[0]
                     .title,
             )
             assertEquals(
                 5,
-                viewModel.uiState.value.sessions[0]
+                viewModel.uiState.value.flatSessions[0]
                     .message_count,
             )
             assertEquals(
                 "active",
-                viewModel.uiState.value.sessions[0]
+                viewModel.uiState.value.flatSessions[0]
                     .status,
             )
         }
@@ -700,6 +708,9 @@ class E2eIntegrationTest {
     fun testSessionsLoad_failure() =
         runTest {
             coEvery { mockApiService.getSessions(any(), any(), any()) } returns createErrorResponse(500)
+            coEvery { mockApiService.getProfilesSessions() } returns createErrorResponse(500)
+            coEvery { mockApiService.getChannels() } returns createErrorResponse(500)
+            coEvery { mockApiService.getCronJobs() } returns Response.success(emptyList())
 
             val viewModel = SessionsViewModel()
             viewModel.loadSessions()

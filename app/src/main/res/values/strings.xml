@@ -495,6 +495,12 @@
     <string name="sessions_action_delete_n">Delete %1$d</string>
     <string name="sessions_action_copy_prompt">Copy prompt</string>
     <string name="sessions_rename_placeholder">New title…</string>
+    <string name="sessions_load_error_title">Failed to load sidebar</string>
+    <string name="sessions_empty_title">No project rooms yet</string>
+    <string name="sessions_empty_subtitle">A room appears here once a project name exists in the gateway.</string>
+    <string name="sessions_select_all">Select all</string>
+    <string name="sessions_bulk_delete">Bulk delete</string>
+    <string name="sessions_cancel">Cancel</string>
     <string name="content_desc_enter_selection">Select sessions</string>
     <string name="content_desc_exit_selection">Exit selection</string>
 

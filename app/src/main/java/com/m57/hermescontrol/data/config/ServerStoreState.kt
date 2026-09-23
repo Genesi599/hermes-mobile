@@ -23,4 +23,5 @@ data class ServerStoreState(
     val wsAuthParam: String = "token",
     val typingEffectEnabled: Boolean = true,
     val typingEffectDelayMs: Int = 30,
+    val showReasoningEnabled: Boolean = true,
 )
