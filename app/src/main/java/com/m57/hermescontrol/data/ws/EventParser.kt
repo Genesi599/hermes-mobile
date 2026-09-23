@@ -126,6 +126,14 @@ object EventParser {
                 WsEvent.SessionUpdated(payload)
             }
 
+            // tui_gateway broadcasts "sessions.changed" (plural, ~0.5s floor)
+            // on EVERY state.db write — private sessions AND channel rooms.
+            // The desktop demotes its polls to backstops on this event; the
+            // app does the same (refresh transcript / room tail instantly).
+            "sessions.changed" -> {
+                WsEvent.SessionUpdated(payload)
+            }
+
             "approval.request" -> {
                 val command = payload?.get("command") as? String
                 val description = payload?.get("description") as? String

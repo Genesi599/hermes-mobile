@@ -216,7 +216,7 @@ class ChatViewModel(
         viewModelScope.launch {
             val result =
                 withContext(Dispatchers.IO) {
-                    safeApiCall { ApiClient.hermesApi.getChannelMessages(channelId, limit = ROOM_MESSAGE_LIMIT) }
+                    safeApiCall { ApiClient.hermesApi.getChannelMessages(channelId, limit = ROOM_MESSAGE_LIMIT, order = "latest") }
                 }
             when (result) {
                 is NetworkResult.Success -> {
@@ -500,6 +500,18 @@ class ChatViewModel(
 
             is WsEvent.SessionUpdated -> {
                 loadSessions()
+                // Event-driven tail refresh: `sessions.changed` fires on every
+                // state.db write (private turns AND room messages), so pull the
+                // newest page instead of waiting for a poll. Skipped mid-stream
+                // — the live WS token path already owns the bubble.
+                if (_streamingState.value.streamingMessage == null) {
+                    val roomId = _uiState.value.roomId
+                    val sessionId = _uiState.value.currentSessionId
+                    when {
+                        roomId != null -> loadRoomMessages(roomId)
+                        sessionId != null -> loadSessionMessages(sessionId)
+                    }
+                }
             }
 
             is WsEvent.ClarifyRequest -> {
